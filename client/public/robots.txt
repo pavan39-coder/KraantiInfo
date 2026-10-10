@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://wakeupindia-five.vercel.app/sitemap.xml
