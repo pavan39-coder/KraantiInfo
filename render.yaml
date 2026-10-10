@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: wakeupindia-api
+    runtime: node
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm run start --workspace=@wakeupindia/server
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: openrouter/free
+      - key: NEWS_ENGINE_ENABLED
+        value: "true"
+      - key: NEWS_COLLECTION_INTERVAL_MINUTES
+        value: "30"
+      - key: AI_AUTO_PROCESSING_ENABLED
+        value: "true"
+      - key: AI_AUTO_PUBLISH_ENABLED
+        value: "true"
+      - key: NEWSDATA_API_KEY
+        sync: false

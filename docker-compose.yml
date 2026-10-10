@@ -1,0 +1,65 @@
+services:
+  mongo:
+    image: mongo:8
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:?Set MONGO_USER in deploy.env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?Set MONGO_PASSWORD in deploy.env}
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - private
+
+  api:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - deploy.env
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://${MONGO_USER}:${MONGO_PASSWORD}@mongo:27017/wakeupindia?authSource=admin
+      CLIENT_ORIGIN: https://${SITE_DOMAIN}
+    depends_on:
+      - mongo
+    networks:
+      - private
+
+  web:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+      args:
+        VITE_API_URL: /api
+    restart: unless-stopped
+    networks:
+      - private
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?Set SITE_DOMAIN in deploy.env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+      - web
+    networks:
+      - private
+
+volumes:
+  mongo-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  private:
