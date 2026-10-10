@@ -433,3 +433,26 @@ button { cursor: pointer; }
   .editor-form-row { grid-template-columns: 1fr; }
   .editorial-article-top { align-items: flex-start; flex-direction: column; gap: 6px; }
 }
+
+/* Phone layout adjustments */
+@media (max-width: 480px) {
+  html, body, #root, .app-shell { width: 100%; max-width: 100%; }
+  body { overflow-x: hidden; }
+  .app-shell, main, .content-wrap, .admin-shell { min-width: 0; }
+  .masthead { grid-template-columns: 32px minmax(0, 1fr) 32px; gap: 5px; padding-inline: 12px; }
+  .brand-name { font-size: clamp(12px, 4vw, 14px); letter-spacing: .12em; }
+  .content-wrap, .admin-shell, .article-view { width: calc(100% - 24px); }
+  .lead-copy h1, .article-view > h1, .filter-heading h1 { overflow-wrap: anywhere; }
+  .lead-image, .article-figure { height: clamp(190px, 62vw, 250px); }
+  .story-grid--two, .story-grid--three { grid-template-columns: minmax(0, 1fr); gap: 15px; }
+  .story-grid--two .story-card__image, .story-grid--three .story-card__image { height: clamp(150px, 48vw, 210px); }
+  .article-layout { grid-template-columns: 1fr; }
+  .admin-title { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .admin-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-panel { min-width: 0; padding: 11px; }
+  .source-form, .editor-form-row { grid-template-columns: minmax(0, 1fr); }
+  .candidate-item { grid-template-columns: minmax(0, 1fr); }
+  .candidate-buttons { width: 100%; }
+  .editorial-actions, .last-run { align-items: flex-start; flex-direction: column; }
+  .publish-confirmations { min-width: 0; width: 100%; }
+}
