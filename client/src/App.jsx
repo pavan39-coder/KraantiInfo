@@ -4,6 +4,7 @@ import {
   Globe2, Menu, Newspaper, Search, Send, Settings2, ShieldCheck, Sparkles, X
 } from "lucide-react";
 import { API } from "./config.js";
+import { brandedAuthor } from "./branding.js";
 import { fallbackStories } from "./data/demoStories.js";
 import { StoryCard, StoryImage } from "./components/StoryCard.jsx";
 import AdminDashboard from "./features/newsroom/AdminDashboard.jsx";
@@ -184,7 +185,7 @@ function App() {
             <div className="article-kicker">{selected.category} <span> / </span> {selected.tags?.[0] || "Latest"}</div>
             <h1>{selected.title}</h1>
             <p className="article-deck">{selected.summary}</p>
-            <div className="article-byline"><span className="author-avatar">W</span><span>By <strong>{selected.author || "KraantiInfo Desk"}</strong><small>{formatDate(selected.publishedAt)} · {selected.readTime || "4 min read"}{selected.autoPublished ? " · AI-assisted, automatically published; not independently verified" : selected.aiAssisted ? " · AI-assisted, editor-reviewed" : ""}</small></span><button className="article-share" onClick={() => { navigator.clipboard?.writeText(window.location.href); setSaveMessage("Article link copied."); }}><Bookmark size={16} /> Save story</button></div>
+            <div className="article-byline"><span className="author-avatar">K</span><span>By <strong>{brandedAuthor(selected.author)}</strong><small>{formatDate(selected.publishedAt)} · {selected.readTime || "4 min read"}{selected.autoPublished ? " · AI-assisted, automatically published; not independently verified" : selected.aiAssisted ? " · AI-assisted, editor-reviewed" : ""}</small></span><button className="article-share" onClick={() => { navigator.clipboard?.writeText(window.location.href); setSaveMessage("Article link copied."); }}><Bookmark size={16} /> Save story</button></div>
             <figure className="article-figure"><StoryImage story={selected} /><figcaption>{selected.imageAlt || selected.title} <span>{apiStatus === "demo" ? "PHOTO: KRAANTIINFO / DEMO" : "PHOTO: SOURCE"}</span></figcaption></figure>
             <div className="article-layout">
               <div className="article-body">
@@ -225,7 +226,7 @@ function App() {
                 <section className="lead-grid" aria-label="Top stories">
                   <button className="lead-story" onClick={() => openStory(leadStory)}>
                     <div className="lead-image"><StoryImage story={leadStory} /><span className="image-caption">{leadStory.imageAlt || leadStory.category} <i>{apiStatus === "demo" ? "KRAANTIINFO / DEMO" : "KRAANTIINFO"}</i></span></div>
-                    <div className="lead-copy"><span className="eyebrow">{leadStory.category} <i /> THE BIG STORY</span><h1>{leadStory.title}</h1><p>{leadStory.summary}</p><span className="story-meta">{leadStory.author || "KraantiInfo Desk"} <i /> {leadStory.readTime || "4 min read"} <i /> <Clock3 size={13} /> 2 hours ago</span><span className="read-story">Read the story <ArrowRight size={16} /></span></div>
+                    <div className="lead-copy"><span className="eyebrow">{leadStory.category} <i /> THE BIG STORY</span><h1>{leadStory.title}</h1><p>{leadStory.summary}</p><span className="story-meta">{brandedAuthor(leadStory.author)} <i /> {leadStory.readTime || "4 min read"} <i /> <Clock3 size={13} /> 2 hours ago</span><span className="read-story">Read the story <ArrowRight size={16} /></span></div>
                   </button>
                   <div className="lead-side">
                     <div className="side-heading"><span>ALSO MAKING NEWS</span><ArrowUpRight size={15} /></div>

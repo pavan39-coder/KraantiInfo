@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { ArrowRight, Check, ExternalLink, ShieldCheck } from "lucide-react";
 import { categories } from "../../../data/categories.js";
+import { brandedAuthor } from "../../../branding.js";
 
 export function EditorialQueue({ articles, busy, onStatus, onSave }) {
   return (
@@ -18,14 +19,14 @@ function EditorialArticleCard({ article, busy, onStatus, onSave }) {
   const [sensitiveReviewConfirmed, setSensitiveReviewConfirmed] = useState(false);
   const [rejectConfirmed, setRejectConfirmed] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState({ title: article.title, summary: article.summary, body: article.body, category: article.category, author: article.author });
+  const [form, setForm] = useState({ title: article.title, summary: article.summary, body: article.body, category: article.category, author: brandedAuthor(article.author) });
   const source = article.sourceArticle;
   const categoryIsSensitive = /politic|election|crime|health|business|finance|death|market|stock|bank|assault|arrest|murder|injur|fatal|disease|drug|court/i.test(`${article.category} ${source?.title || ""} ${source?.description || ""} ${source?.category || ""}`);
   const canPublish = article.status === "review" && factCheckConfirmed && attributionConfirmed && (!categoryIsSensitive || sensitiveReviewConfirmed);
 
   return (
     <article className="editorial-article">
-      <div className="editorial-article-top"><span className={`editorial-status editorial-status--${article.status}`}>{article.status === "review" ? "AWAITING REVIEW" : "DRAFT"}</span><span className="eyebrow">{article.category} · {article.author}</span></div>
+      <div className="editorial-article-top"><span className={`editorial-status editorial-status--${article.status}`}>{article.status === "review" ? "AWAITING REVIEW" : "DRAFT"}</span><span className="eyebrow">{article.category} · {brandedAuthor(article.author)}</span></div>
       {editing ? <form className="editor-form editorial-edit-form" onSubmit={async event => { event.preventDefault(); if (await onSave(article, form)) setEditing(false); }}>
         <label>Headline<input required maxLength="180" value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} /></label>
         <label>Summary<textarea required maxLength="500" rows="2" value={form.summary} onChange={event => setForm({ ...form, summary: event.target.value })} /></label>
@@ -40,7 +41,7 @@ function EditorialArticleCard({ article, busy, onStatus, onSave }) {
       <details className="editorial-preview"><summary>Read article draft</summary><div>{article.body.split(/\n{2,}/).filter(Boolean).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div></details>
       <div className="editorial-source">Source attribution: <strong>{article.sourceName}</strong>{source?.provider && <span> · {source.provider}</span>} {article.sourceUrl && <a href={article.sourceUrl} target="_blank" rel="noreferrer">Verify original <ExternalLink size={12} /></a>}</div>
       <div className="editorial-actions">
-        <button className="quiet-button edit-article-button" disabled={busy} onClick={() => { setForm({ title: article.title, summary: article.summary, body: article.body, verificationNotes: article.verificationNotes || "", category: article.category, author: article.author }); setEditing(true); }}>Edit article</button>
+        <button className="quiet-button edit-article-button" disabled={busy} onClick={() => { setForm({ title: article.title, summary: article.summary, body: article.body, verificationNotes: article.verificationNotes || "", category: article.category, author: brandedAuthor(article.author) }); setEditing(true); }}>Edit article</button>
         {article.status === "draft" && <button className="candidate-action" disabled={busy} onClick={() => onStatus(article, "review")}>Submit for review <ArrowRight size={14} /></button>}
         {article.status === "review" && <div className="publish-confirmations">
           <label><input type="checkbox" checked={factCheckConfirmed} onChange={event => setFactCheckConfirmed(event.target.checked)} /> I reviewed the article and verified its factual claims.</label>
