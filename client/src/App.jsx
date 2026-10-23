@@ -156,8 +156,8 @@ function App() {
           <span className="side-label">Independent perspectives</span>
         </div>
         <button className="brand" onClick={() => { closeStory(); setAdminOpen(false); setCategory("Top stories"); }} aria-label="KraantiInfo home">
-          <span className="brand-mark">W<span>.</span></span>
-          <span className="brand-name">WAKEUP<span>INDIA</span></span>
+          <span className="brand-mark">K<span>.</span></span>
+          <span className="brand-name">KRAANTI<span>INFO</span></span>
           <span className="brand-tagline">NEWS, THOUGHTFULLY TOLD</span>
         </button>
         <div className="masthead__actions">
@@ -245,7 +245,7 @@ function App() {
           </div>
         )}
       </main>
-      <footer className="site-footer"><div className="footer-brand"><span className="brand-mark">W<span>.</span></span><div><strong>KRAANTIINFO</strong><span>NEWS, THOUGHTFULLY TOLD</span></div></div><p>Independent perspectives. Informed India.</p><div className="footer-links"><button onClick={() => setSaveMessage("About KraantiInfo — a newsroom built for clarity and context.")}>About</button><button onClick={() => setAdminOpen(true)}>The newsroom</button><span>© {new Date().getFullYear()} KraantiInfo <i /> {apiStatus === "demo" ? "Demo edition" : "Live edition"}</span></div></footer>
+      <footer className="site-footer"><div className="footer-brand"><span className="brand-mark">K<span>.</span></span><div><strong>KRAANTIINFO</strong><span>NEWS, THOUGHTFULLY TOLD</span></div></div><p>Independent perspectives. Informed India.</p><div className="footer-links"><button onClick={() => setSaveMessage("About KraantiInfo — a newsroom built for clarity and context.")}>About</button><button onClick={() => setAdminOpen(true)}>The newsroom</button><span>© {new Date().getFullYear()} KraantiInfo <i /> {apiStatus === "demo" ? "Demo edition" : "Live edition"}</span></div></footer>
     </div>
   );
 }
