@@ -27,14 +27,27 @@ function AdminDashboard({ onExit, token, onLogin, requireAuth }) {
   const authorization = token ? { Authorization: `Bearer ${token}` } : {};
 
   useEffect(() => {
-    Promise.all([
-      fetch(`${API}/admin/overview`, { headers: authorization }),
-      fetch(`${API}/admin/sources`, { headers: authorization })
-    ])
-      .then(async ([overviewResponse, sourceResponse]) => {
-        if (!overviewResponse.ok || !sourceResponse.ok) throw new Error("Could not load newsroom data.");
+    if (requireAuth && !token) {
+      setError("");
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const [overviewResponse, sourceResponse] = await Promise.all([
+          fetch(`${API}/admin/overview`, { headers: authorization }),
+          fetch(`${API}/admin/sources`, { headers: authorization })
+        ]);
+        if (overviewResponse.status === 401 || sourceResponse.status === 401) {
+          throw new Error("Your newsroom session has expired. Please sign in again.");
+        }
+        if (!overviewResponse.ok || !sourceResponse.ok) {
+          throw new Error("Could not load newsroom data. Please retry in a moment.");
+        }
         const overviewData = await overviewResponse.json();
         const sourceData = await sourceResponse.json();
+        if (cancelled) return;
         setOverview(overviewData);
         if (sourceData.data?.length) setSources(sourceData.data);
         if (!overviewData.demo) {
@@ -42,14 +55,25 @@ function AdminDashboard({ onExit, token, onLogin, requireAuth }) {
             fetch(`${API}/admin/collected-articles`, { headers: authorization }),
             fetch(`${API}/admin/editorial/articles`, { headers: authorization })
           ]);
-          if (!candidateResponse.ok || !editorialResponse.ok) throw new Error("Could not load editorial news.");
+          if (candidateResponse.status === 401 || editorialResponse.status === 401) {
+            throw new Error("Your newsroom session has expired. Please sign in again.");
+          }
+          if (!candidateResponse.ok || !editorialResponse.ok) {
+            throw new Error("Could not load editorial news. Please retry in a moment.");
+          }
           const [candidatePayload, editorialPayload] = await Promise.all([candidateResponse.json(), editorialResponse.json()]);
+          if (cancelled) return;
           setCollectedArticles(candidatePayload.data || []);
           setEditorialArticles(editorialPayload.data || []);
         }
-      })
-      .catch(() => setError("Showing sample newsroom data. Connect MongoDB to save changes."));
-  }, [token]);
+        setError("");
+      } catch (err) {
+        if (!cancelled) setError(err.message || "Newsroom is temporarily unavailable. Please retry.");
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [token, requireAuth]);
 
   if (requireAuth && !token) return <AdminLogin onLogin={onLogin} onExit={onExit} />;
 
