@@ -226,6 +226,21 @@ router.get("/editorial/articles", async (req, res, next) => {
   }
 });
 
+router.get("/editorial/published-articles", async (req, res, next) => {
+  try {
+    if (!databaseReady()) return res.status(503).json({ error: "MongoDB is required to load published articles." });
+    const limit = Math.min(Math.max(Number(req.query.limit) || 25, 1), 100);
+    const data = await Article.find({ status: "published" })
+      .select("title category publishedAt bloggerSync")
+      .sort({ publishedAt: -1 })
+      .limit(limit)
+      .lean();
+    res.json({ data });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.post("/collected-articles/:id/generate-draft", async (req, res, next) => {
   try {
     if (!databaseReady()) return res.status(503).json({ error: "MongoDB is required to create editorial drafts." });

@@ -12,6 +12,7 @@ function AdminDashboard({ onExit, token, onLogin, requireAuth }) {
   const [overview, setOverview] = useState({ demo: true, counts: { published: fallbackStories.length, review: 3, drafts: 2 }, engine: { enabled: false, lastRun: null } });
   const [collectedArticles, setCollectedArticles] = useState([]);
   const [editorialArticles, setEditorialArticles] = useState([]);
+  const [publishedArticles, setPublishedArticles] = useState([]);
   const [editingCandidate, setEditingCandidate] = useState(null);
   const [draftForm, setDraftForm] = useState({ title: "", summary: "", body: "", category: "India", author: "KraantiInfo Desk" });
   const [sources, setSources] = useState([
@@ -51,9 +52,10 @@ function AdminDashboard({ onExit, token, onLogin, requireAuth }) {
         setOverview(overviewData);
         if (sourceData.data?.length) setSources(sourceData.data);
         if (!overviewData.demo) {
-          const [candidateResponse, editorialResponse] = await Promise.all([
+          const [candidateResponse, editorialResponse, publishedResponse] = await Promise.all([
             fetch(`${API}/admin/collected-articles`, { headers: authorization }),
-            fetch(`${API}/admin/editorial/articles`, { headers: authorization })
+            fetch(`${API}/admin/editorial/articles`, { headers: authorization }),
+            fetch(`${API}/admin/editorial/published-articles?limit=25`, { headers: authorization })
           ]);
           if (candidateResponse.status === 401 || editorialResponse.status === 401) {
             throw new Error("Your newsroom session has expired. Please sign in again.");
@@ -61,10 +63,14 @@ function AdminDashboard({ onExit, token, onLogin, requireAuth }) {
           if (!candidateResponse.ok || !editorialResponse.ok) {
             throw new Error("Could not load editorial news. Please retry in a moment.");
           }
-          const [candidatePayload, editorialPayload] = await Promise.all([candidateResponse.json(), editorialResponse.json()]);
+          const [candidatePayload, editorialPayload, publishedPayload] = await Promise.all([
+            candidateResponse.json(), editorialResponse.json(),
+            publishedResponse.ok ? publishedResponse.json() : Promise.resolve({ data: [] })
+          ]);
           if (cancelled) return;
           setCollectedArticles(candidatePayload.data || []);
           setEditorialArticles(editorialPayload.data || []);
+          setPublishedArticles(publishedPayload.data || []);
         }
         setError("");
       } catch (err) {
@@ -147,11 +153,32 @@ function AdminDashboard({ onExit, token, onLogin, requireAuth }) {
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Blogger retry could not run.");
       const result = payload.data;
-      setRunStatus(`Blogger retry finished · ${result.published} published · ${result.failed} still failed.`);
-      const overviewResponse = await fetch(`${API}/admin/overview`, { headers: authorization });
-      if (overviewResponse.ok) setOverview(await overviewResponse.json());
+      setRunStatus(`Blogger retry finished · ${result.attempted} attempted · ${result.published} published · ${result.failed} still failed.`);
+      await refreshEditorial();
     } catch (err) {
       setError(err.message || "Blogger retry could not run.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function syncPublishedArticleToBlogger(article) {
+    setBusy(true);
+    setError("");
+    setRunStatus("");
+    try {
+      const response = await fetch(`${API}/admin/editorial/articles/${article._id}/blogger-sync`, {
+        method: "POST",
+        headers: authorization
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "This article could not be synced to Blogger.");
+      setRunStatus(payload.blogger?.status === "published"
+        ? `Blogger copy published · ${article.title}`
+        : `Blogger sync status: ${payload.blogger?.status || "unknown"} · ${article.title}`);
+      await refreshEditorial();
+    } catch (err) {
+      setError(err.message || "This article could not be synced to Blogger.");
     } finally {
       setBusy(false);
     }
@@ -169,19 +196,22 @@ function AdminDashboard({ onExit, token, onLogin, requireAuth }) {
   }
 
   async function refreshEditorial() {
-    const [candidateResponse, editorialResponse, overviewResponse] = await Promise.all([
+    const [candidateResponse, editorialResponse, overviewResponse, publishedResponse] = await Promise.all([
       fetch(`${API}/admin/collected-articles`, { headers: authorization }),
       fetch(`${API}/admin/editorial/articles`, { headers: authorization }),
-      fetch(`${API}/admin/overview`, { headers: authorization })
+      fetch(`${API}/admin/overview`, { headers: authorization }),
+      fetch(`${API}/admin/editorial/published-articles?limit=25`, { headers: authorization })
     ]);
     const candidatePayload = await candidateResponse.json();
     const editorialPayload = await editorialResponse.json();
     const overviewPayload = await overviewResponse.json();
+    const publishedPayload = publishedResponse.ok ? await publishedResponse.json() : { data: [] };
     if (!candidateResponse.ok || !editorialResponse.ok || !overviewResponse.ok) {
       throw new Error(candidatePayload.error || editorialPayload.error || overviewPayload.error || "Could not refresh editorial queue.");
     }
     setCollectedArticles(candidatePayload.data || []);
     setEditorialArticles(editorialPayload.data || []);
+    setPublishedArticles(publishedPayload.data || []);
     setOverview(overviewPayload);
   }
 
@@ -348,6 +378,28 @@ function AdminDashboard({ onExit, token, onLogin, requireAuth }) {
       </div>
       <div className="admin-footnote"><ShieldCheck size={15} /> Sensitive categories (politics, elections, crime, health and financial impact) always require human review, even when auto-publish is enabled.</div>
       {!overview.demo && <section className="admin-panel candidates-panel"><div className="panel-heading"><div><span className="eyebrow">STEP 1 · SOURCE MATERIAL</span><h2>Collected candidates</h2></div><span className="candidate-count">{collectedArticles.length} awaiting editorial processing</span></div><p className="panel-description">When AI processing is enabled, it compares recent candidates, picks one likely to interest readers, and prepares an original brief from source metadata. Eligible low-risk stories may publish automatically; sensitive or incomplete stories stay in review.</p>{collectedArticles.length ? <div className="candidate-list">{collectedArticles.map(item => <article className="candidate-item" key={item._id}><div className="candidate-copy"><span className="eyebrow">{item.provider.replace("_", " ")} · {item.source?.name || item.sourceName || "Source"}</span><h3>{item.title}</h3><p>{item.description || "No description supplied by source."}</p><small>{item.publishedAt ? new Date(item.publishedAt).toLocaleString() : "Publication date unavailable"} · {item.category} · {item.language || "Language unspecified"}</small><a href={item.url} target="_blank" rel="noreferrer">Open original source <ExternalLink size={13} /></a></div><div className="candidate-buttons"><button className="candidate-action ai-draft-button" disabled={busy} onClick={() => generateCandidateDraft(item)}><Sparkles size={14} /> Generate AI draft</button><button className="manual-draft-button" disabled={busy} onClick={() => startDraft(item)}>Write manually</button></div>{editingCandidate === item._id && <form className="editor-form" onSubmit={event => saveEditorialDraft(event, item)}><div className="editor-form-title"><strong>Write an original report</strong><span>Do not copy the source article. Verify claims and cite the source.</span></div><label>Headline<input required maxLength="180" value={draftForm.title} onChange={event => setDraftForm({ ...draftForm, title: event.target.value })} /></label><label>Summary<textarea required maxLength="500" rows="2" value={draftForm.summary} onChange={event => setDraftForm({ ...draftForm, summary: event.target.value })} /></label><label>KraantiInfo article body<textarea required maxLength="20000" rows="7" value={draftForm.body} onChange={event => setDraftForm({ ...draftForm, body: event.target.value })} placeholder="Write an original, fact-checked report. Include relevant context and attribute source material." /></label><div className="editor-form-row"><label>Category<select value={draftForm.category} onChange={event => setDraftForm({ ...draftForm, category: event.target.value })}>{categories.map(value => <option key={value}>{value}</option>)}</select></label><label>Author<input maxLength="100" value={draftForm.author} onChange={event => setDraftForm({ ...draftForm, author: event.target.value })} /></label></div><div className="editor-form-actions"><button type="button" className="quiet-button" onClick={() => setEditingCandidate(null)}>Cancel</button><button type="submit" disabled={busy}>Save draft <Check size={14} /></button></div></form>}</article>)}</div> : <div className="candidate-empty">No source items are waiting for editorial processing.</div>}</section>}
+      {!overview.demo && <section className="admin-panel candidates-panel blogger-sync-panel">
+        <div className="panel-heading"><div><span className="eyebrow">BLOGGER SYNC</span><h2>Published on KraantiInfo</h2></div><span className="candidate-count">{publishedArticles.length} recent articles</span></div>
+        <p className="panel-description">Check each published article’s Blogger status. Sync an individual article if it is missing from Blogger.</p>
+        {publishedArticles.length ? <div className="candidate-list">{publishedArticles.map(article => {
+          const syncStatus = article.bloggerSync?.status || "not_synced";
+          const statusLabel = syncStatus === "published" ? "On Blogger" : syncStatus === "failed" ? "Sync failed" : syncStatus === "pending" ? "Sync pending" : "Not synced";
+          return <article className="candidate-item" key={article._id}>
+            <div className="candidate-copy">
+              <span className="eyebrow">{article.category} · {statusLabel}</span>
+              <h3>{article.title}</h3>
+              <small>{article.publishedAt ? new Date(article.publishedAt).toLocaleString() : "Publication date unavailable"}</small>
+              {syncStatus === "failed" && article.bloggerSync?.error && <small>{article.bloggerSync.error}</small>}
+              {syncStatus === "published" && article.bloggerSync?.postUrl && <a href={article.bloggerSync.postUrl} target="_blank" rel="noreferrer">Open Blogger copy <ExternalLink size={13} /></a>}
+            </div>
+            <div className="candidate-buttons">
+              {syncStatus === "published"
+                ? <span className="candidate-count">Synced</span>
+                : <button className="candidate-action" disabled={busy || !overview.blogger?.enabled || !overview.blogger?.configured} onClick={() => syncPublishedArticleToBlogger(article)}><Newspaper size={14} /> Sync this post</button>}
+            </div>
+          </article>;
+        })}</div> : <div className="candidate-empty">No published articles are available yet.</div>}
+      </section>}
       {!overview.demo && <EditorialQueue articles={editorialArticles} busy={busy} onStatus={updateEditorialStatus} onSave={saveArticleEdits} />}
     </div>
   );
