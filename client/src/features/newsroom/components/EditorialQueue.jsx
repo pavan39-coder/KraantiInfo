@@ -29,7 +29,7 @@ function EditorialArticleCard({ article, busy, onStatus, onSave }) {
       {editing ? <form className="editor-form editorial-edit-form" onSubmit={async event => { event.preventDefault(); if (await onSave(article, form)) setEditing(false); }}>
         <label>Headline<input required maxLength="180" value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} /></label>
         <label>Summary<textarea required maxLength="500" rows="2" value={form.summary} onChange={event => setForm({ ...form, summary: event.target.value })} /></label>
-        <label>WakeupIndia article body<textarea required maxLength="20000" rows="7" value={form.body} onChange={event => setForm({ ...form, body: event.target.value })} /></label>
+        <label>KraantiInfo article body<textarea required maxLength="20000" rows="7" value={form.body} onChange={event => setForm({ ...form, body: event.target.value })} /></label>
         <label>AI fact-check / verification notes<textarea maxLength="3000" rows="3" value={form.verificationNotes} onChange={event => setForm({ ...form, verificationNotes: event.target.value })} /></label>
         <div className="editor-form-row"><label>Category<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value })}>{categories.map(value => <option key={value}>{value}</option>)}</select></label><label>Author<input maxLength="100" value={form.author} onChange={event => setForm({ ...form, author: event.target.value })} /></label></div>
         <div className="editor-form-actions"><button type="button" className="quiet-button" onClick={() => setEditing(false)}>Cancel</button><button type="submit" disabled={busy}>Save changes <Check size={14} /></button></div>
@@ -46,7 +46,7 @@ function EditorialArticleCard({ article, busy, onStatus, onSave }) {
           <label><input type="checkbox" checked={factCheckConfirmed} onChange={event => setFactCheckConfirmed(event.target.checked)} /> I reviewed the article and verified its factual claims.</label>
           <label><input type="checkbox" checked={attributionConfirmed} onChange={event => setAttributionConfirmed(event.target.checked)} /> Source and attribution are correct.</label>
           {categoryIsSensitive && <label className="sensitive-confirm"><input type="checkbox" checked={sensitiveReviewConfirmed} onChange={event => setSensitiveReviewConfirmed(event.target.checked)} /> I completed the additional editorial review required for this sensitive category.</label>}
-          <button className="publish-button" disabled={busy || !canPublish} onClick={() => onStatus(article, "published", { factCheckConfirmed, attributionConfirmed, sensitiveReviewConfirmed })}>Publish to WakeupIndia <Check size={14} /></button>
+          <button className="publish-button" disabled={busy || !canPublish} onClick={() => onStatus(article, "published", { factCheckConfirmed, attributionConfirmed, sensitiveReviewConfirmed })}>Publish to KraantiInfo <Check size={14} /></button>
         </div>}
         {!rejectConfirmed ? <button className="reject-button" disabled={busy} onClick={() => setRejectConfirmed(true)}>Reject</button> : <div className="reject-confirm"><span>Reject this article?</span><button onClick={() => setRejectConfirmed(false)}>Keep</button><button disabled={busy} onClick={() => onStatus(article, "rejected")}>Confirm reject</button></div>}
       </div>
@@ -54,3 +54,4 @@ function EditorialArticleCard({ article, busy, onStatus, onSave }) {
     </article>
   );
 }
+

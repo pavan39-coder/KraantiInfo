@@ -4,12 +4,12 @@ export const demoArticles = [
     title: "India's clean energy push gains momentum as solar capacity expands",
     summary: "New projects and policy support are accelerating the shift to renewable power, while grid storage remains a key challenge.",
     category: "India",
-    author: "WakeupIndia Desk",
+    author: "KraantiInfo Desk",
     publishedAt: "2026-10-08T04:30:00.000Z",
     readTime: "4 min read",
     image: "https://images.unsplash.com/photo-1509391366360-2e959784a276?auto=format&fit=crop&w=1400&q=85",
     imageAlt: "Solar panels under a bright sky",
-    sourceName: "WakeupIndia Demo Desk",
+    sourceName: "KraantiInfo Demo Desk",
     sourceUrl: "",
     status: "published",
     tags: ["Renewable energy", "Policy"]
@@ -24,7 +24,7 @@ export const demoArticles = [
     readTime: "5 min read",
     image: "https://images.unsplash.com/photo-1570168007204-dfb528c6958f?auto=format&fit=crop&w=1000&q=85",
     imageAlt: "Busy city street in India",
-    sourceName: "WakeupIndia Demo Desk",
+    sourceName: "KraantiInfo Demo Desk",
     sourceUrl: "",
     status: "published",
     tags: ["Cities", "Transport"]
@@ -39,7 +39,7 @@ export const demoArticles = [
     readTime: "3 min read",
     image: "https://images.unsplash.com/photo-1611974789855-9c2a0a7236a3?auto=format&fit=crop&w=1000&q=85",
     imageAlt: "Financial chart on a screen",
-    sourceName: "WakeupIndia Demo Desk",
+    sourceName: "KraantiInfo Demo Desk",
     sourceUrl: "",
     status: "published",
     tags: ["Markets", "Economy"]
@@ -54,7 +54,7 @@ export const demoArticles = [
     readTime: "6 min read",
     image: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1000&q=85",
     imageAlt: "Green agricultural fields",
-    sourceName: "WakeupIndia Demo Desk",
+    sourceName: "KraantiInfo Demo Desk",
     sourceUrl: "",
     status: "published",
     tags: ["Agriculture", "Research"]
@@ -69,7 +69,7 @@ export const demoArticles = [
     readTime: "5 min read",
     image: "https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&w=1000&q=85",
     imageAlt: "Team collaborating around a laptop",
-    sourceName: "WakeupIndia Demo Desk",
+    sourceName: "KraantiInfo Demo Desk",
     sourceUrl: "",
     status: "published",
     tags: ["Startups", "Innovation"]
@@ -84,7 +84,7 @@ export const demoArticles = [
     readTime: "4 min read",
     image: "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1000&q=85",
     imageAlt: "International flags outside a government building",
-    sourceName: "WakeupIndia Demo Desk",
+    sourceName: "KraantiInfo Demo Desk",
     sourceUrl: "",
     status: "published",
     tags: ["Diplomacy", "Climate"]
@@ -99,7 +99,7 @@ export const demoArticles = [
     readTime: "3 min read",
     image: "https://images.unsplash.com/photo-1461896836934-ffe607ba8211?auto=format&fit=crop&w=1000&q=85",
     imageAlt: "Athlete running on a track",
-    sourceName: "WakeupIndia Demo Desk",
+    sourceName: "KraantiInfo Demo Desk",
     sourceUrl: "",
     status: "published",
     tags: ["Athletics", "India"]
@@ -114,7 +114,7 @@ export const demoArticles = [
     readTime: "4 min read",
     image: "https://images.unsplash.com/photo-1576091160399-112ba8d25d1d?auto=format&fit=crop&w=1000&q=85",
     imageAlt: "Healthcare professional reviewing information",
-    sourceName: "WakeupIndia Demo Desk",
+    sourceName: "KraantiInfo Demo Desk",
     sourceUrl: "",
     status: "published",
     tags: ["Public health", "Wellness"]
@@ -126,3 +126,4 @@ export const demoSources = [
   { _id: "source-2", name: "GDELT (global news)", type: "GDELT", category: "World", enabled: false, reliabilityScore: 80, lastFetchStatus: "Not configured", lastFetchedAt: null },
   { _id: "source-3", name: "Government / RSS feed", type: "GOVERNMENT_FEED", category: "India", enabled: false, reliabilityScore: 95, lastFetchStatus: "Feed URL required", lastFetchedAt: null }
 ];
+

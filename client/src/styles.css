@@ -434,25 +434,79 @@ button { cursor: pointer; }
   .editorial-article-top { align-items: flex-start; flex-direction: column; gap: 6px; }
 }
 
-/* Phone layout adjustments */
+/* Keep the publication and editorial desk usable on narrow phone screens. */
 @media (max-width: 480px) {
   html, body, #root, .app-shell { width: 100%; max-width: 100%; }
-  body { overflow-x: hidden; }
+  body { overflow-x: clip; }
   .app-shell, main, .content-wrap, .admin-shell { min-width: 0; }
-  .masthead { grid-template-columns: 32px minmax(0, 1fr) 32px; gap: 5px; padding-inline: 12px; }
+  .utility-inner { width: calc(100% - 24px); gap: 8px; }
+  .utility-inner > span { min-width: 0; gap: 6px; font-size: 7px; white-space: nowrap; }
+  .demo-indicator { font-size: 7px; letter-spacing: .06em; white-space: nowrap; }
+  .masthead { grid-template-columns: 32px minmax(0, 1fr) 32px; gap: 5px; padding-right: 12px; padding-left: 12px; }
   .brand-name { font-size: clamp(12px, 4vw, 14px); letter-spacing: .12em; }
+  .brand-tagline { font-size: 5px; letter-spacing: .14em; }
   .content-wrap, .admin-shell, .article-view { width: calc(100% - 24px); }
-  .lead-copy h1, .article-view > h1, .filter-heading h1 { overflow-wrap: anywhere; }
-  .lead-image, .article-figure { height: clamp(190px, 62vw, 250px); }
+  .edition-line { gap: 8px; font-size: 7px; letter-spacing: .04em; }
+  .edition-line > span:last-child { white-space: nowrap; font-size: 7px; }
+  .lead-grid { gap: 17px; }
+  .lead-image { height: clamp(190px, 62vw, 250px); }
+  .lead-copy h1 { font-size: clamp(29px, 9vw, 35px); overflow-wrap: anywhere; }
+  .story-meta { flex-wrap: wrap; line-height: 1.5; }
+  .story-card--compact { grid-template-columns: minmax(0, 1fr) 88px; padding-left: 25px; }
+  .story-card--compact .story-card__image { height: 70px; }
+  .section-heading { min-height: 0; gap: 12px; padding-bottom: 14px; }
+  .section-heading h2 { font-size: 23px; }
+  .section-heading > button { flex: 0 0 auto; max-width: 42%; font-size: 8px; }
   .story-grid--two, .story-grid--three { grid-template-columns: minmax(0, 1fr); gap: 15px; }
-  .story-grid--two .story-card__image, .story-grid--three .story-card__image { height: clamp(150px, 48vw, 210px); }
-  .article-layout { grid-template-columns: 1fr; }
-  .admin-title { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .story-grid--two .story-card__image,
+  .story-grid--three .story-card__image { height: clamp(150px, 48vw, 210px); }
+  .story-grid--two .story-card h3,
+  .story-grid--three .story-card h3 { font-size: 19px; }
+  .briefing-banner { padding: 14px; }
+  .article-view > h1 { font-size: clamp(31px, 9vw, 38px); overflow-wrap: anywhere; }
+  .article-byline { align-items: flex-start; }
+  .article-byline > span:nth-child(2) { min-width: 0; flex: 1; line-height: 1.5; }
+  .article-figure { height: clamp(190px, 62vw, 250px); }
+  .article-figure figcaption { gap: 8px; line-height: 1.4; }
+  .article-figure figcaption span { flex: 0 0 auto; font-size: 6px; }
+  .article-tags { flex-wrap: wrap; }
+  .filter-heading { min-width: 0; }
+  .filter-heading h1 { max-width: 100%; overflow-wrap: anywhere; }
+
+  .admin-top { min-height: 48px; gap: 8px; }
+  .admin-top > button { font-size: 8px; white-space: nowrap; }
+  .admin-top > span { min-width: 0; gap: 6px; }
+  .admin-top .demo-indicator { font-size: 6px; }
+  .admin-title { gap: 12px; }
+  .admin-title > div:first-child { min-width: 0; }
+  .collector-actions { width: 100%; align-items: stretch; }
+  .collector-actions > button { width: 100%; justify-content: center; white-space: normal; text-align: center; }
   .admin-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metric-card { min-width: 0; padding: 10px; }
+  .metric-card > span { gap: 4px; font-size: 8px; }
+  .metric-card > strong { font-size: 23px; }
   .admin-panel { min-width: 0; padding: 11px; }
-  .source-form, .editor-form-row { grid-template-columns: minmax(0, 1fr); }
-  .candidate-item { grid-template-columns: minmax(0, 1fr); }
+  .panel-heading { align-items: flex-start; flex-wrap: wrap; gap: 8px; }
+  .panel-heading > * { min-width: 0; }
+  .panel-heading h2 { font-size: 18px; }
+  .panel-description { font-size: 9px; }
+  .source-table { width: 100%; min-width: 0; overflow-x: auto; }
+  .source-row { grid-template-columns: minmax(0, 1fr) 58px 30px; gap: 5px; }
+  .source-row > :nth-child(2) { overflow-wrap: anywhere; }
+  .source-row > :nth-child(3) { display: none; }
+  .source-row--header > :nth-child(3) { display: none; }
+  .source-name strong { overflow-wrap: anywhere; }
+  .source-form { grid-template-columns: minmax(0, 1fr); }
+  .source-form > button { grid-column: auto; }
+  .pipeline-list > div { grid-template-columns: 22px minmax(0, 1fr) 14px; gap: 5px; min-height: 40px; }
+  .last-run { align-items: flex-start; flex-direction: column; gap: 5px; line-height: 1.5; }
+  .admin-footnote { align-items: flex-start; font-size: 8px; }
+  .candidate-count { width: 100%; }
   .candidate-buttons { width: 100%; }
-  .editorial-actions, .last-run { align-items: flex-start; flex-direction: column; }
+  .candidate-buttons > button { max-width: 100%; white-space: normal; text-align: center; }
+  .editor-form { padding: 10px; }
+  .editor-form-actions { flex-wrap: wrap; }
+  .editorial-actions { flex-direction: column; }
   .publish-confirmations { min-width: 0; width: 100%; }
+  .reject-confirm { flex-wrap: wrap; }
 }

@@ -7,9 +7,17 @@ const articleSchema = new mongoose.Schema(
     body: { type: String, default: "" },
     verificationNotes: { type: String, default: "" },
     category: { type: String, required: true },
-    author: { type: String, default: "WakeupIndia Desk" },
+    author: { type: String, default: "KraantiInfo Desk" },
     aiAssisted: { type: Boolean, default: false },
     autoPublished: { type: Boolean, default: false },
+    bloggerSync: {
+      status: { type: String, enum: ["pending", "published", "failed"], default: undefined },
+      postId: { type: String, default: "" },
+      postUrl: { type: String, default: "" },
+      label: { type: String, default: "" },
+      lastAttemptAt: { type: Date, default: null },
+      error: { type: String, default: "" }
+    },
     image: { type: String, default: "" },
     imageAlt: { type: String, default: "" },
     sourceName: { type: String, default: "" },
@@ -25,3 +33,4 @@ const articleSchema = new mongoose.Schema(
 articleSchema.index({ status: 1, publishedAt: -1 });
 
 export default mongoose.model("Article", articleSchema);
+

@@ -12,6 +12,7 @@ import { MockNewsProvider } from "../providers/MockNewsProvider.js";
 import { collectEnabledSources, getLastCollection } from "../services/NewsCollector.js";
 import { getDatabaseStatus } from "../config/database.js";
 import { categories } from "../constants/categories.js";
+import { isBloggerConfigured, isBloggerPublishingEnabled, publishArticleToBlogger, retryFailedBloggerArticles } from "../services/BloggerPublisher.js";
 
 const router = Router();
 const sensitiveCategories = /politic|election|crime|health|business|finance|death|market|stock|bank|assault|arrest|murder|injur|fatal|disease|drug|court/i;
@@ -65,7 +66,8 @@ router.get("/overview", async (_req, res, next) => {
         demo: true,
         counts: { published: demoArticles.length, review: 3, drafts: 2 },
         engine: { enabled: false, lastRun: getLastCollection()?.completedAt || lastRun },
-        automation: { enabled: false, autoPublishEnabled: false, maxPerRun: 1 }
+        automation: { enabled: false, autoPublishEnabled: false, maxPerRun: 1 },
+        blogger: { enabled: isBloggerPublishingEnabled(), configured: isBloggerConfigured() }
       });
     }
     const [published, review, drafts, collected, latestSourceFetch] = await Promise.all([
@@ -84,7 +86,8 @@ router.get("/overview", async (_req, res, next) => {
         enabled: process.env.AI_AUTO_PROCESSING_ENABLED === "true",
         autoPublishEnabled: process.env.AI_AUTO_PUBLISH_ENABLED === "true",
         maxPerRun: 1
-      }
+      },
+      blogger: { enabled: isBloggerPublishingEnabled(), configured: isBloggerConfigured() }
     });
   } catch (error) {
     next(error);
@@ -173,6 +176,18 @@ router.post("/editorial/automation/run", async (_req, res, next) => {
   }
 });
 
+router.post("/blogger/retry-failed", async (_req, res, next) => {
+  try {
+    if (!databaseReady()) return res.status(503).json({ error: "MongoDB is required to retry Blogger posts." });
+    if (!isBloggerPublishingEnabled() || !isBloggerConfigured()) {
+      return res.status(503).json({ error: "Enable Blogger auto-publishing and configure Blogger OAuth credentials and blog ID on the backend first." });
+    }
+    res.json({ data: await retryFailedBloggerArticles() });
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.get("/collected-articles", async (req, res, next) => {
   try {
     if (!databaseReady()) return res.status(503).json({ error: "MongoDB is required to view collected articles." });
@@ -227,7 +242,7 @@ router.post("/collected-articles/:id/generate-draft", async (req, res, next) => 
       body: generated.body,
       verificationNotes: generated.verificationNotes,
       category: generated.category,
-      author: "WakeupIndia AI Desk",
+      author: "KraantiInfo AI Desk",
       aiAssisted: true,
       sourceName: candidate.sourceName || candidate.provider,
       sourceUrl: candidate.url,
@@ -263,7 +278,7 @@ router.patch("/editorial/articles/:id", async (req, res, next) => {
       return res.status(400).json({ error: "Headline, summary, article body, and category are required." });
     }
     const cleanCategory = category.trim();
-    if (!categories.includes(cleanCategory)) return res.status(400).json({ error: "Choose a supported WakeupIndia category." });
+    if (!categories.includes(cleanCategory)) return res.status(400).json({ error: "Choose a supported KraantiInfo category." });
     if (title.trim().length > 180 || summary.trim().length > 500 || body.trim().length > 20000) {
       return res.status(400).json({ error: "Headline, summary, or article body exceeds the allowed length." });
     }
@@ -293,7 +308,7 @@ router.post("/collected-articles/:id/draft", async (req, res, next) => {
       return res.status(400).json({ error: "Write an original headline, summary, article body, and category before saving a draft." });
     }
     const cleanCategory = category.trim();
-    if (!categories.includes(cleanCategory)) return res.status(400).json({ error: "Choose a supported WakeupIndia category." });
+    if (!categories.includes(cleanCategory)) return res.status(400).json({ error: "Choose a supported KraantiInfo category." });
     if (title.trim().length > 180 || summary.trim().length > 500 || body.trim().length > 20000) {
       return res.status(400).json({ error: "Headline, summary, or article body exceeds the allowed length." });
     }
@@ -304,7 +319,7 @@ router.post("/collected-articles/:id/draft", async (req, res, next) => {
       summary: summary.trim(),
       body: body.trim(),
       category: cleanCategory,
-      author: typeof author === "string" && author.trim() ? author.trim().slice(0, 100) : "WakeupIndia Desk",
+      author: typeof author === "string" && author.trim() ? author.trim().slice(0, 100) : "KraantiInfo Desk",
       sourceName: candidate.sourceName || candidate.provider,
       sourceUrl: candidate.url,
       image: candidate.imageUrl,
@@ -358,10 +373,38 @@ router.patch("/editorial/articles/:id/status", async (req, res, next) => {
     if (article.sourceArticle) {
       await SourceArticle.updateOne({ _id: article.sourceArticle }, { $set: { status } });
     }
-    res.json({ data: article });
+    let blogger = { status: "skipped" };
+    if (status === "published") {
+      try {
+        blogger = await publishArticleToBlogger(article);
+      } catch (error) {
+        // Preserve the successful KraantiInfo publish; Blogger sync can be retried.
+        blogger = { status: "failed", error: error.message };
+        console.error(`Blogger sync failed for KraantiInfo article ${article._id}: ${error.message}`);
+      }
+    }
+    res.json({ data: article, blogger });
   } catch (error) {
     next(error);
   }
 });
 
+router.post("/editorial/articles/:id/blogger-sync", async (req, res, next) => {
+  try {
+    if (!databaseReady()) return res.status(503).json({ error: "MongoDB is required to retry Blogger publishing." });
+    const article = await Article.findById(req.params.id);
+    if (!article) return res.status(404).json({ error: "Editorial article not found." });
+    if (article.status !== "published") return res.status(409).json({ error: "Only stories already published on KraantiInfo can sync to Blogger." });
+    if (!isBloggerPublishingEnabled() || !isBloggerConfigured()) {
+      return res.status(503).json({ error: "Enable Blogger auto-publishing and configure the Blogger OAuth credentials and blog ID on the backend first." });
+    }
+    const blogger = await publishArticleToBlogger(article);
+    res.json({ data: article, blogger });
+  } catch (error) {
+    if (/^Google OAuth|^Blogger API/.test(error.message)) return res.status(502).json({ error: error.message });
+    next(error);
+  }
+});
+
 export default router;
+

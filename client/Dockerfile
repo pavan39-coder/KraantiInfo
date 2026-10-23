@@ -8,9 +8,10 @@ RUN npm ci
 COPY client ./client
 ARG VITE_API_URL=/api
 ENV VITE_API_URL=${VITE_API_URL}
-RUN npm run build --workspace=@wakeupindia/client
+RUN npm run build --workspace=@kraantiinfo/client
 
 FROM nginx:alpine
 COPY client/deploy.nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/client/dist /usr/share/nginx/html
 EXPOSE 80
+

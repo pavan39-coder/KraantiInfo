@@ -1,5 +1,5 @@
 {
-  "name": "@wakeupindia/server",
+  "name": "@kraantiinfo/server",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
@@ -17,3 +17,4 @@
   },
   "devDependencies": {}
 }
+

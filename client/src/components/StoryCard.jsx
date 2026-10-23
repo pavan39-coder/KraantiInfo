@@ -13,8 +13,9 @@ export function StoryCard({ story, onOpen, compact = false, number }) {
         <span className="eyebrow">{story.category}</span>
         <h3>{story.title}</h3>
         {!compact && <p>{story.summary}</p>}
-        <span className="story-meta">{story.readTime || "4 min read"} <i /> {story.author || "WakeupIndia Desk"}</span>
+        <span className="story-meta">{story.readTime || "4 min read"} <i /> {story.author || "KraantiInfo Desk"}</span>
       </div>
     </button>
   );
 }
+

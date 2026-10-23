@@ -63,7 +63,7 @@ router.post("/assistant/chat", (req, res) => {
   if (typeof question !== "string" || !question.trim()) return res.status(400).json({ error: "Please enter a question." });
   if (!article || typeof article.title !== "string") return res.status(400).json({ error: "An article is required for context." });
   res.json({
-    answer: `DEMO RESPONSE — This answer is based only on the WakeupIndia demo article “${article.title}”. ${article.summary ?? "The article summary is not available."} For verified details, refer to the attributed sources in the article. A live AI provider has not been configured.`,
+    answer: `DEMO RESPONSE — This answer is based only on the KraantiInfo demo article “${article.title}”. ${article.summary ?? "The article summary is not available."} For verified details, refer to the attributed sources in the article. A live AI provider has not been configured.`,
     demo: true
   });
 });
@@ -71,3 +71,4 @@ router.post("/assistant/chat", (req, res) => {
 router.use("/admin", adminRoutes);
 
 export default router;
+

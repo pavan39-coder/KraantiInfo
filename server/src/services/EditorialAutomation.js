@@ -1,6 +1,7 @@
 import Article from "../models/Article.js";
 import SourceArticle from "../models/SourceArticle.js";
 import { selectAndGenerateEditorialDraft } from "./EditorialDraftAgent.js";
+import { publishArticleToBlogger } from "./BloggerPublisher.js";
 
 const MIN_SOURCE_RELIABILITY = 75;
 const MAX_SOURCE_AGE_MS = 24 * 60 * 60 * 1000;
@@ -60,6 +61,7 @@ function compareCandidatePriority(left, right) {
 export async function processCollectedCandidates({
   now = new Date(),
   selectionDraftGenerator = selectAndGenerateEditorialDraft,
+  bloggerPublisher = publishArticleToBlogger,
   candidateModel = SourceArticle,
   articleModel = Article
 } = {}) {
@@ -120,7 +122,7 @@ export async function processCollectedCandidates({
           : `Automation disclosure: generated from one approved source's headline and short description; not independently verified. Review required. ${autoPublishReviewReason}`
       ].filter(Boolean).join("\n\n"),
       category: generated.category,
-      author: "WakeupIndia AI Desk",
+      author: "KraantiInfo AI Desk",
       aiAssisted: true,
       autoPublished: shouldAutoPublish,
       sourceName: candidate.sourceName || candidate.source?.name,
@@ -133,6 +135,17 @@ export async function processCollectedCandidates({
     });
     const finalStatus = shouldAutoPublish ? "published" : "review";
     await candidateModel.updateOne({ _id: candidate._id, status: "collected" }, { $set: { status: finalStatus } });
+    let blogger = { status: "skipped" };
+    if (shouldAutoPublish) {
+      try {
+        blogger = await bloggerPublisher(article);
+      } catch (error) {
+        // Blogger is a secondary destination; a Blogger outage must not undo the
+        // successful KraantiInfo publication. The article stores the sync failure.
+        blogger = { status: "failed", error: error.message };
+        console.error(`Blogger sync failed for KraantiInfo article ${article._id}: ${error.message}`);
+      }
+    }
     console.log(`Editorial automation ${shouldAutoPublish ? "auto-published" : "drafted for review"} candidate ${candidate._id} as article ${article._id}.`);
     return {
       enabled: true,
@@ -142,6 +155,7 @@ export async function processCollectedCandidates({
       published: shouldAutoPublish ? 1 : 0,
       review: shouldAutoPublish ? 0 : 1,
       autoPublished: shouldAutoPublish,
+      blogger,
       autoPublishReviewReason: shouldAutoPublish ? "" : autoPublishReviewReason,
       selectedCandidateId: String(candidate._id),
       selectionScore: generated.selectionScore,
@@ -165,3 +179,4 @@ export async function processCollectedCandidates({
     automationInProgress = false;
   }
 }
+

@@ -1,10 +1,10 @@
 services:
   - type: web
-    name: wakeupindia-api
+    name: kraantiinfo-api
     runtime: node
     plan: starter
     buildCommand: npm ci
-    startCommand: npm run start --workspace=@wakeupindia/server
+    startCommand: npm run start --workspace=@kraantiinfo/server
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
@@ -33,3 +33,16 @@ services:
         value: "true"
       - key: NEWSDATA_API_KEY
         sync: false
+      - key: BLOGGER_BLOG_ID
+        sync: false
+      - key: BLOGGER_CLIENT_ID
+        sync: false
+      - key: BLOGGER_CLIENT_SECRET
+        sync: false
+      - key: BLOGGER_REFRESH_TOKEN
+        sync: false
+      - key: BLOGGER_AUTO_PUBLISH_ENABLED
+        value: "true"
+      - key: PUBLIC_SITE_URL
+        value: https://kraantiinfo.vercel.app
+

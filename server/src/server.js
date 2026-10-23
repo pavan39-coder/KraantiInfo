@@ -40,7 +40,7 @@ app.use((error, _req, res, _next) => {
   res.status(500).json({ error: "The server could not complete the request." });
 });
 
-app.listen(port, () => console.log(`WakeupIndia API listening on http://localhost:${port}`));
+app.listen(port, () => console.log(`KraantiInfo API listening on http://localhost:${port}`));
 
 connectToDatabase({
   onConnected: () => {
@@ -56,3 +56,4 @@ connectToDatabase({
 if (process.env.NEWS_ENGINE_ENABLED === "true" && !process.env.MONGO_URI) {
   console.warn("NEWS_ENGINE_ENABLED=true, but the collector cannot run without MongoDB.");
 }
+

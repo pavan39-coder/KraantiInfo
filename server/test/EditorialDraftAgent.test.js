@@ -51,7 +51,7 @@ test("AI draft generation sends only source metadata and validates the generated
 
   assert.equal(request.url, "https://openrouter.ai/api/v1/chat/completions");
   assert.equal(request.headers.Authorization, "Bearer test-secret");
-  assert.equal(request.headers["X-Title"], "WakeupIndia");
+  assert.equal(request.headers["X-Title"], "KraantiInfo");
   assert.equal(request.body.model, "test-model");
   assert.match(request.body.messages[0].content, /Do not copy or closely paraphrase/);
   assert.match(request.body.messages[1].content, /A short source summary/);
@@ -122,3 +122,4 @@ test("AI provider authentication and quota errors are surfaced without exposing 
     /OpenRouter rate limit or quota/
   );
 });
+

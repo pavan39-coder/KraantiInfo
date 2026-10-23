@@ -1,5 +1,5 @@
 {
-  "name": "wakeupindia",
+  "name": "kraantiinfo",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -11,13 +11,13 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "concurrently -k -n API,WEB \"npm run dev --workspace=@wakeupindia/server\" \"npm run dev --workspace=@wakeupindia/client\"",
-    "dev:server": "npm run dev --workspace=@wakeupindia/server",
-    "dev:client": "npm run dev --workspace=@wakeupindia/client",
-    "build": "npm run build --workspace=@wakeupindia/client",
-    "test": "npm run test --workspace=@wakeupindia/server",
+    "dev": "concurrently -k -n API,WEB \"npm run dev --workspace=@kraantiinfo/server\" \"npm run dev --workspace=@kraantiinfo/client\"",
+    "dev:server": "npm run dev --workspace=@kraantiinfo/server",
+    "dev:client": "npm run dev --workspace=@kraantiinfo/client",
+    "build": "npm run build --workspace=@kraantiinfo/client",
+    "test": "npm run test --workspace=@kraantiinfo/server",
     "check": "npm run test && npm run build",
-    "start": "npm run start --workspace=@wakeupindia/server"
+    "start": "npm run start --workspace=@kraantiinfo/server"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
@@ -26,3 +26,4 @@
     "shell-quote": "^1.12.0"
   }
 }
+
