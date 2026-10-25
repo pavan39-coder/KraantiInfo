@@ -1,4 +1,5 @@
 import Article from "../models/Article.js";
+import EditorialAutomationState from "../models/EditorialAutomationState.js";
 import SourceArticle from "../models/SourceArticle.js";
 import { generateEditorialDraft } from "./EditorialDraftAgent.js";
 import { publishArticleToBlogger } from "./BloggerPublisher.js";
@@ -10,8 +11,14 @@ const AUTO_PUBLISH_MIN_RELIABILITY = 75;
 const AUTO_PUBLISH_MAX_SOURCE_AGE_MS = 24 * 60 * 60 * 1000;
 const AUTO_PUBLISH_MIN_DESCRIPTION_LENGTH = 80;
 const MAX_CANDIDATES_PER_SELECTION = 20;
+const SCHEDULED_PROCESSING_STATE_KEY = "scheduled-ai-processing";
 const sensitiveContent = /\b(election|politic(?:al|s|ian|ians)?|policy|crime|health|murder|assault|arrest|fatal|death|disease|suicide|terror(?:ism)?|war|conflict|disaster|scam|fraud|lawsuit|court|stock market|banking crisis|interest rate|investment advice)\b/i;
 let automationInProgress = false;
+
+function scheduledProcessingCooldownMs() {
+  const configuredHours = Number(process.env.AI_AUTO_PROCESSING_COOLDOWN_HOURS) || 12;
+  return Math.min(Math.max(configuredHours, 1), 24) * 60 * 60 * 1000;
+}
 
 export function assessAutoDraftCandidate(candidate, now = new Date()) {
   const source = candidate.source;
@@ -68,10 +75,12 @@ function compareCandidatePriority(left, right) {
 export async function processCollectedCandidates({
   now = new Date(),
   draftLanguage = process.env.AI_AUTO_DRAFT_LANGUAGE,
+  scheduled = false,
   draftGenerator = generateEditorialDraft,
   bloggerPublisher = publishArticleToBlogger,
   candidateModel = SourceArticle,
-  articleModel = Article
+  articleModel = Article,
+  automationStateModel = EditorialAutomationState
 } = {}) {
   const outputLanguage = draftLanguage === "en" ? "en" : "hi";
   if (process.env.AI_AUTO_PROCESSING_ENABLED !== "true") {
@@ -83,6 +92,16 @@ export async function processCollectedCandidates({
   let considered = 0;
   let eligibleCount = 0;
   try {
+    if (scheduled) {
+      const state = await automationStateModel.findOne({ key: SCHEDULED_PROCESSING_STATE_KEY })
+        .select("lastScheduledAttemptAt")
+        .lean();
+      const lastAttemptAt = state?.lastScheduledAttemptAt ? new Date(state.lastScheduledAttemptAt).getTime() : 0;
+      if (lastAttemptAt && now.getTime() - lastAttemptAt < scheduledProcessingCooldownMs()) {
+        return { enabled: true, skipped: "Scheduled AI processing is cooling down; manual draft generation remains available.", processed: 0, published: 0, review: 0 };
+      }
+    }
+
     const candidates = await candidateModel.find({ status: "collected" })
       .sort({ publishedAt: -1, collectedAt: -1 })
       .limit(100)
@@ -121,6 +140,13 @@ export async function processCollectedCandidates({
       selectionReason: "Ranked by source reliability, permitted reporting detail, media, and freshness.",
       selectionScore: candidate.source.reliabilityScore
     };
+    if (scheduled) {
+      await automationStateModel.updateOne(
+        { key: SCHEDULED_PROCESSING_STATE_KEY },
+        { $set: { lastScheduledAttemptAt: now }, $setOnInsert: { key: SCHEDULED_PROCESSING_STATE_KEY } },
+        { upsert: true }
+      );
+    }
     const generated = {
       ...await draftGenerator(candidate, { language: outputLanguage }),
       selectedCandidateId: selection.selectedCandidateId,

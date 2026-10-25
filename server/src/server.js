@@ -45,11 +45,11 @@ app.listen(port, () => console.log(`KraantiInfo API listening on http://localhos
 connectToDatabase({
   onConnected: () => {
     if (process.env.AI_AUTO_PROCESSING_ENABLED === "true") {
-      processCollectedCandidates()
+      processCollectedCandidates({ scheduled: true })
         .then(result => console.log("Startup editorial processing completed:", result))
         .catch(error => console.error("Startup editorial processing failed:", error.message));
     }
-    startNewsCollectorScheduler({ afterCollection: processCollectedCandidates });
+    startNewsCollectorScheduler({ afterCollection: () => processCollectedCandidates({ scheduled: true }) });
   }
 });
 

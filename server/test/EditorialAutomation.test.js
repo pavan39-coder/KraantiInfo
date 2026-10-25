@@ -51,6 +51,28 @@ test("scheduled automation stays off unless explicitly enabled", async () => {
   }
 });
 
+test("scheduled automation honors the persistent cooldown but leaves manual runs available", async () => {
+  const previousSetting = process.env.AI_AUTO_PROCESSING_ENABLED;
+  process.env.AI_AUTO_PROCESSING_ENABLED = "true";
+  const stateQuery = {
+    select() { return this; },
+    lean: async () => ({ lastScheduledAttemptAt: new Date(now.getTime() - 60 * 60 * 1000) })
+  };
+  try {
+    const result = await processCollectedCandidates({
+      now,
+      scheduled: true,
+      automationStateModel: { findOne: () => stateQuery },
+      candidateModel: { find() { throw new Error("Cooldown should be checked before loading candidates."); } }
+    });
+    assert.equal(result.processed, 0);
+    assert.match(result.skipped, /cooling down/);
+  } finally {
+    if (previousSetting === undefined) delete process.env.AI_AUTO_PROCESSING_ENABLED;
+    else process.env.AI_AUTO_PROCESSING_ENABLED = previousSetting;
+  }
+});
+
 test("scheduled automation drafts the highest-ranked candidate and sends metadata-only stories to review", async () => {
   const previousSetting = process.env.AI_AUTO_PROCESSING_ENABLED;
   process.env.AI_AUTO_PROCESSING_ENABLED = "true";

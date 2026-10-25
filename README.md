@@ -68,7 +68,7 @@ For each source, the newsroom has separate permissions for storing full text and
 
 ## AI editorial drafts
 
-Set `OPENROUTER_API_KEY` in `server/.env`; never add provider credentials to client/Vite environment variables. Draft generation defaults to `google/gemma-4-31b-it:free` and falls back to `google/gemma-4-26b-a4b-it:free`; configure `OPENROUTER_MODEL` and `OPENROUTER_FALLBACK_MODELS` to use other OpenRouter models. These defaults support JSON output and Hindi/English drafting. Recovery retries and fallback requests can add provider calls. Free model availability and rate limits can vary; check your OpenRouter account's current limits. AI generation is not fact-checking.
+Set `OPENROUTER_API_KEY` in `server/.env`; never add provider credentials to client/Vite environment variables. Draft generation defaults to `google/gemma-4-31b-it:free` and falls back to `google/gemma-4-26b-a4b-it:free`; configure `OPENROUTER_MODEL` and `OPENROUTER_FALLBACK_MODELS` to use other OpenRouter models. These defaults support JSON output and Hindi/English drafting. Scheduled AI processing runs at most once every 12 hours by default (`AI_AUTO_PROCESSING_COOLDOWN_HOURS`); editors can still generate drafts manually between scheduled runs. Rate-limit responses stop immediately without spending more requests on fallback models. Free model availability and rate limits can vary; check your OpenRouter account's current limits. AI generation is not fact-checking.
 
 ### Automatic AI selection and drafting
 

@@ -123,3 +123,20 @@ test("AI provider authentication and quota errors are surfaced without exposing 
   );
 });
 
+test("free-model rate limits stop immediately without spending requests on fallback models", async () => {
+  const requests = [];
+  await assert.rejects(
+    () => generateEditorialDraft(candidate, {
+      apiKey: "test-secret",
+      model: "google/gemma-4-31b-it:free",
+      fallbackModels: ["google/gemma-4-26b-a4b-it:free"],
+      fetchImpl: async (_url, options) => {
+        requests.push(JSON.parse(options.body).model);
+        return new Response("", { status: 429 });
+      }
+    }),
+    /free-model limit/,
+  );
+  assert.deepEqual(requests, ["google/gemma-4-31b-it:free"]);
+});
+

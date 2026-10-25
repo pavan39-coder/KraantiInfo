@@ -216,8 +216,10 @@ export async function generateEditorialDraft(candidate, {
           throw new Error("OpenRouter rejected the server API key. Check OPENROUTER_API_KEY in server/.env.");
         }
         if (response.status === 429) {
-          lastFormatError = new Error("OpenRouter rate limit or quota was reached. Check account usage or wait before trying again.");
-          break;
+          const isFreeModel = requestedModel === "openrouter/free" || requestedModel.endsWith(":free");
+          throw new Error(isFreeModel
+            ? "OpenRouter rate limit or quota reached for a free model (HTTP 429). Wait for the free-model limit to reset before retrying."
+            : "OpenRouter/provider rate limit or quota reached (HTTP 429). Wait before retrying.");
         }
         if (response.status === 404 || response.status === 400 || response.status >= 500) {
           lastFormatError = new Error(`AI draft generation failed with OpenRouter status ${response.status} for ${requestedModel}.`);
