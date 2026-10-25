@@ -5,6 +5,22 @@ function cleanText(value, maxLength) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
 
+function isTransientNetworkError(error) {
+  return /timeout|fetch failed|network|econnreset|econnrefused|und_err_connect_timeout|eai_again|socket/i
+    .test(`${error?.name || ""} ${error?.message || ""} ${error?.cause?.code || ""}`);
+}
+
+function waitBeforeRetry() {
+  return new Promise(resolve => setTimeout(resolve, 750));
+}
+
+function draftRetryInstruction(error) {
+  if (/^The AI draft contains/.test(error?.message || "")) {
+    return `Your previous response was below the ${MINIMUM_ARTICLE_WORDS}-word minimum. Rewrite it with at least ${MINIMUM_ARTICLE_WORDS} body words, useful labeled background, and no invented current facts. Return the complete JSON object again.`;
+  }
+  return `Your previous response was empty, malformed, or incomplete. Return one complete valid JSON object with string fields title, summary, body, category, and verificationNotes. The body must contain at least ${MINIMUM_ARTICLE_WORDS} words. Keep supported facts separate from context and do not invent current facts.`;
+}
+
 function parseDraft(content) {
   const normalizedContent = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   let parsed;
@@ -128,12 +144,13 @@ export async function generateEditorialDraft(candidate, {
   let lastFormatError;
 
   for (const requestedModel of models) {
+    let retryInstruction = "";
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const requestMessages = attempt === 0 ? messages : [
+      const requestMessages = attempt === 0 || !retryInstruction ? messages : [
         ...messages,
         {
           role: "user",
-          content: `Your previous response was below the ${MINIMUM_ARTICLE_WORDS}-word minimum. Rewrite it now with at least ${MINIMUM_ARTICLE_WORDS} words in the body. Add useful, clearly labeled background and analysis; do not repeat paragraphs or invent current facts. Return the complete JSON object again.`
+          content: retryInstruction
         }
       ];
       let response;
@@ -155,8 +172,13 @@ export async function generateEditorialDraft(candidate, {
           })
         });
       } catch (error) {
-        const reason = error.name === "TimeoutError" ? "timed out" : "could not be reached";
-        throw new Error(`The AI provider ${reason}. Check server connectivity and retry.`);
+        const reason = isTransientNetworkError(error) ? "could not be reached due to a temporary network timeout" : "could not be reached";
+        lastFormatError = new Error(`The AI provider ${reason}. Check server connectivity and retry.`);
+        if (attempt === 0 && isTransientNetworkError(error)) {
+          await waitBeforeRetry();
+          continue;
+        }
+        break;
       }
 
       if (!response.ok) {
@@ -164,10 +186,14 @@ export async function generateEditorialDraft(candidate, {
           throw new Error("OpenRouter rejected the server API key. Check OPENROUTER_API_KEY in server/.env.");
         }
         if (response.status === 429) {
-          throw new Error("The OpenRouter rate limit or quota was reached. Check the provider plan and try again later.");
+          throw new Error("The OpenRouter rate limit or daily quota was reached. Check account usage or wait before trying again.");
         }
         if (response.status === 404 || response.status === 400 || response.status >= 500) {
           lastFormatError = new Error(`AI draft generation failed with OpenRouter status ${response.status} for ${requestedModel}.`);
+          if (response.status >= 500 && attempt === 0) {
+            await waitBeforeRetry();
+            continue;
+          }
           break;
         }
         throw new Error(`AI draft generation failed with OpenRouter status ${response.status}.`);
@@ -177,13 +203,23 @@ export async function generateEditorialDraft(candidate, {
       const content = payload.choices?.[0]?.message?.content;
       if (typeof content !== "string" || !content.trim()) {
         lastFormatError = new Error("The AI provider returned no article draft. Please retry.");
+        retryInstruction = draftRetryInstruction(lastFormatError);
+        if (attempt === 0) {
+          await waitBeforeRetry();
+          continue;
+        }
         break;
       }
       try {
         return { ...parseDraft(content), model: payload.model || requestedModel };
       } catch (error) {
         lastFormatError = error;
-        if (!/^The AI draft contains/.test(error.message)) break;
+        retryInstruction = draftRetryInstruction(error);
+        if (attempt === 0) {
+          await waitBeforeRetry();
+          continue;
+        }
+        break;
       }
     }
   }

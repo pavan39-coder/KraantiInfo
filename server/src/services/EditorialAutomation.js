@@ -1,6 +1,6 @@
 import Article from "../models/Article.js";
 import SourceArticle from "../models/SourceArticle.js";
-import { generateEditorialDraft, selectAndGenerateEditorialDraft } from "./EditorialDraftAgent.js";
+import { generateEditorialDraft } from "./EditorialDraftAgent.js";
 import { publishArticleToBlogger } from "./BloggerPublisher.js";
 import { countWords, MINIMUM_ARTICLE_WORDS } from "../utils/wordCount.js";
 
@@ -68,7 +68,6 @@ function compareCandidatePriority(left, right) {
 export async function processCollectedCandidates({
   now = new Date(),
   draftLanguage = process.env.AI_AUTO_DRAFT_LANGUAGE,
-  selectionDraftGenerator = selectAndGenerateEditorialDraft,
   bloggerPublisher = publishArticleToBlogger,
   candidateModel = SourceArticle,
   articleModel = Article
@@ -112,10 +111,15 @@ export async function processCollectedCandidates({
       return { enabled: true, considered: candidates.length, eligible: eligible.length, processed: 0, published: 0, review: 0, failed: 0, failures: [] };
     }
 
-    // Select first, then write the required long-form report from only the selected source's permitted full text.
-    const selection = await selectionDraftGenerator(unseen, { language: outputLanguage });
-    const candidate = unseen.find(item => String(item._id) === selection.selectedCandidateId);
-    if (!candidate) throw new Error("The AI provider selected an unknown source candidate. Please retry.");
+    // The queue is already ranked by source reliability, permitted reporting detail,
+    // useful media, and freshness. Use that ranking instead of spending a second
+    // model request just to choose a story.
+    const candidate = unseen[0];
+    const selection = {
+      selectedCandidateId: String(candidate._id),
+      selectionReason: "Ranked by source reliability, permitted reporting detail, media, and freshness.",
+      selectionScore: candidate.source.reliabilityScore
+    };
     const generated = {
       ...await generateEditorialDraft(candidate, { language: outputLanguage }),
       selectedCandidateId: selection.selectedCandidateId,
@@ -134,7 +138,7 @@ export async function processCollectedCandidates({
       body: generated.body,
       verificationNotes: [
         generated.verificationNotes,
-        `AI selection (${generated.selectionScore}/100): ${generated.selectionReason || "Selected as the most relevant candidate in this collection."}`,
+        `Automation priority (${generated.selectionScore}/100): ${generated.selectionReason}`,
         shouldAutoPublish
           ? `Automation disclosure: ${sourceBasisDisclosure}`
           : `Automation disclosure: ${sourceBasisDisclosure} Review required. ${autoPublishReviewReason}`
