@@ -25,6 +25,8 @@ services:
         value: google/gemma-4-31b-it:free
       - key: OPENROUTER_FALLBACK_MODELS
         value: google/gemma-4-26b-a4b-it:free
+      - key: SEO_PUBLIC_SITE_URL
+        value: https://www.kraantiinfo.in
       - key: NEWS_ENGINE_ENABLED
         value: "true"
       - key: NEWS_COLLECTION_INTERVAL_MINUTES

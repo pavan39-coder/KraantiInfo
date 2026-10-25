@@ -4,7 +4,23 @@
   "buildCommand": "npm run build --workspace=@kraantiinfo/client",
   "outputDirectory": "client/dist",
   "rewrites": [
+    { "source": "/sitemap.xml", "destination": "https://wakeupindia.onrender.com/api/sitemap.xml" },
+    { "source": "/article/:id", "destination": "https://wakeupindia.onrender.com/api/seo/articles/:id" },
     { "source": "/(.*)", "destination": "/" }
+  ],
+  "headers": [
+    {
+      "source": "/sitemap.xml",
+      "headers": [
+        { "key": "x-vercel-enable-rewrite-caching", "value": "1" }
+      ]
+    },
+    {
+      "source": "/article/:id",
+      "headers": [
+        { "key": "x-vercel-enable-rewrite-caching", "value": "1" }
+      ]
+    }
   ]
 }
 

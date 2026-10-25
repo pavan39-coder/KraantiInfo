@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { generateEditorialDraft } from "../src/services/EditorialDraftAgent.js";
+import { generateEditorialDraft, selectAndGenerateEditorialDraft } from "../src/services/EditorialDraftAgent.js";
 
 const candidate = {
   title: "A source headline",
@@ -123,7 +123,23 @@ test("AI provider authentication and quota errors are surfaced without exposing 
   );
 });
 
-test("free-model rate limits stop immediately without spending requests on fallback models", async () => {
+test("AI draft generation tries the configured fallback after a free-model rate limit", async () => {
+  const requests = [];
+  const result = await generateEditorialDraft(candidate, {
+      apiKey: "test-secret",
+      model: "google/gemma-4-31b-it:free",
+      fallbackModels: ["google/gemma-4-26b-a4b-it:free"],
+      fetchImpl: async (_url, options) => {
+        requests.push(JSON.parse(options.body).model);
+        if (requests.length === 1) return new Response("", { status: 429 });
+        return successfulResponse(draft);
+      }
+    });
+  assert.deepEqual(requests, ["google/gemma-4-31b-it:free", "google/gemma-4-26b-a4b-it:free"]);
+  assert.equal(result.model, "google/gemma-4-26b-a4b-it:free");
+});
+
+test("AI draft generation explains when all configured free models are rate limited", async () => {
   const requests = [];
   await assert.rejects(
     () => generateEditorialDraft(candidate, {
@@ -135,8 +151,34 @@ test("free-model rate limits stop immediately without spending requests on fallb
         return new Response("", { status: 429 });
       }
     }),
-    /free-model limit/,
+    /configured free models.*daily request limit/i,
   );
-  assert.deepEqual(requests, ["google/gemma-4-31b-it:free"]);
+  assert.deepEqual(requests, ["google/gemma-4-31b-it:free", "google/gemma-4-26b-a4b-it:free"]);
+});
+
+test("AI story selection tries configured fallbacks after a rate limit", async () => {
+  const requests = [];
+  const selection = {
+    selectedCandidateId: "candidate-1",
+    selectionReason: "Fresh and relevant source details.",
+    selectionScore: 82
+  };
+  const result = await selectAndGenerateEditorialDraft([{
+    ...candidate,
+    _id: "candidate-1",
+    description: "A detailed source summary that is long enough to identify the story and support cautious editorial selection."
+  }], {
+    apiKey: "test-secret",
+    model: "primary:free",
+    fallbackModels: ["fallback:free"],
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body).model);
+      if (requests.length === 1) return new Response("", { status: 429 });
+      return successfulResponse(selection);
+    }
+  });
+
+  assert.deepEqual(requests, ["primary:free", "fallback:free"]);
+  assert.deepEqual(result, { ...selection, model: "fallback:free" });
 });
 

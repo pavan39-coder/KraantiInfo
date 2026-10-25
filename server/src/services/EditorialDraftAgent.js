@@ -217,9 +217,13 @@ export async function generateEditorialDraft(candidate, {
         }
         if (response.status === 429) {
           const isFreeModel = requestedModel === "openrouter/free" || requestedModel.endsWith(":free");
+          lastFormatError = new Error(isFreeModel
+            ? "OpenRouter rate limit or quota reached for a free model (HTTP 429)."
+            : "OpenRouter/provider rate limit or quota reached (HTTP 429).");
+          if (requestedModel !== models.at(-1)) break;
           throw new Error(isFreeModel
-            ? "OpenRouter rate limit or quota reached for a free model (HTTP 429). Wait for the free-model limit to reset before retrying."
-            : "OpenRouter/provider rate limit or quota reached (HTTP 429). Wait before retrying.");
+            ? "OpenRouter rate limit or quota reached for the configured free models (HTTP 429). The free tier has a daily request limit. Wait for it to reset or configure a paid model with available credits."
+            : "OpenRouter/provider rate limit or quota reached for the configured models (HTTP 429). Wait for the provider limit to reset or configure another model.");
         }
         if (response.status === 404 || response.status === 400 || response.status >= 500) {
           lastFormatError = new Error(`AI draft generation failed with OpenRouter status ${response.status} for ${requestedModel}.`);
@@ -276,6 +280,7 @@ export async function generateEditorialDraft(candidate, {
 export async function selectAndGenerateEditorialDraft(candidates, {
   apiKey = process.env.OPENROUTER_API_KEY,
   model = configuredDraftModel(),
+  fallbackModels = configuredFallbackModels(),
   language = "hi",
   fetchImpl = fetch
 } = {}) {
@@ -304,47 +309,74 @@ export async function selectAndGenerateEditorialDraft(candidates, {
     }
   ];
 
-  let response;
-  try {
-    response = await fetchImpl("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      signal: AbortSignal.timeout(45000),
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-        "X-Title": "KraantiInfo"
-      },
-      body: JSON.stringify({
-        model,
-        temperature: 0.2,
-        max_tokens: 1000,
-        response_format: { type: "json_object" },
-        messages
-      })
-    });
-  } catch (error) {
-    const reason = error.name === "TimeoutError" ? "timed out" : "could not be reached";
-    throw new Error(`The AI provider ${reason}. Check server connectivity and retry.`);
-  }
-  if (!response.ok) {
+  const models = [...new Set([model, ...fallbackModels])];
+  let lastError;
+  for (const requestedModel of models) {
+    let response;
+    try {
+      response = await fetchImpl("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        signal: AbortSignal.timeout(45000),
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "X-Title": "KraantiInfo"
+        },
+        body: JSON.stringify({
+          model: requestedModel,
+          temperature: 0.2,
+          max_tokens: 1000,
+          response_format: { type: "json_object" },
+          ...(requestedModel.startsWith("google/gemma-4-") ? { reasoning: { enabled: false } } : {}),
+          messages
+        })
+      });
+    } catch (error) {
+      const reason = error.name === "TimeoutError" ? "timed out" : "could not be reached";
+      lastError = new Error(`The AI provider ${reason}. Check server connectivity and retry.`);
+      if (isTransientNetworkError(error) && requestedModel !== models.at(-1)) continue;
+      throw lastError;
+    }
     if (response.status === 401 || response.status === 403) throw new Error("OpenRouter rejected the server API key. Check OPENROUTER_API_KEY in server/.env.");
-    if (response.status === 429) throw new Error("The OpenRouter rate limit or quota was reached. Check the provider plan and try again later.");
-    throw new Error(`AI story selection failed with OpenRouter status ${response.status}.`);
-  }
+    if (response.status === 429) {
+      const isFreeModel = requestedModel === "openrouter/free" || requestedModel.endsWith(":free");
+      lastError = new Error(isFreeModel
+        ? "OpenRouter rate limit or quota reached for a free model (HTTP 429)."
+        : "OpenRouter/provider rate limit or quota reached (HTTP 429).");
+      if (requestedModel !== models.at(-1)) continue;
+      throw new Error(isFreeModel
+        ? "OpenRouter rate limit or quota reached for the configured free models (HTTP 429). The free tier has a daily request limit. Wait for it to reset or configure a paid model with available credits."
+        : "OpenRouter/provider rate limit or quota reached for the configured models (HTTP 429). Wait for the provider limit to reset or configure another model.");
+    }
+    if (!response.ok) {
+      if ([404, 400].includes(response.status) || response.status >= 500) {
+        lastError = new Error(`AI story selection failed with OpenRouter status ${response.status} for ${requestedModel}.`);
+        if (requestedModel !== models.at(-1)) continue;
+      }
+      throw lastError || new Error(`AI story selection failed with OpenRouter status ${response.status}.`);
+    }
 
-  const payload = await response.json();
-  const content = extractMessageContent(payload);
-  if (!content.trim()) throw new Error("The AI provider returned no story selection. Please retry.");
-  const result = parseJsonObject(content);
-  const selectedCandidateId = cleanText(result.selectedCandidateId, 100);
-  if (!sourceMaterial.some(candidate => candidate.id === selectedCandidateId)) {
-    throw new Error("The AI provider selected an unknown source candidate. Please retry.");
+    const payload = await response.json();
+    const content = extractMessageContent(payload);
+    if (!content.trim()) {
+      lastError = new Error("The AI provider returned no story selection. Please retry.");
+      if (requestedModel !== models.at(-1)) continue;
+      throw lastError;
+    }
+    const result = parseJsonObject(content);
+    const selectedCandidateId = cleanText(result.selectedCandidateId, 100);
+    if (!sourceMaterial.some(candidate => candidate.id === selectedCandidateId)) {
+      lastError = new Error("The AI provider selected an unknown source candidate. Please retry.");
+      if (requestedModel !== models.at(-1)) continue;
+      throw lastError;
+    }
+    return {
+      selectedCandidateId,
+      selectionReason: cleanText(result.selectionReason, 600),
+      selectionScore: Math.max(0, Math.min(100, Number.parseInt(result.selectionScore, 10) || 0)),
+      model: payload.model || requestedModel
+    };
   }
-  return {
-    selectedCandidateId,
-    selectionReason: cleanText(result.selectionReason, 600),
-    selectionScore: Math.max(0, Math.min(100, Number.parseInt(result.selectionScore, 10) || 0)),
-    model: payload.model || model
-  };
+  throw lastError || new Error("No configured OpenRouter model returned a story selection.");
 }
 

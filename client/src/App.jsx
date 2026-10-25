@@ -10,6 +10,18 @@ import { categories as newsCategories } from "./data/categories.js";
 import { StoryCard, StoryImage } from "./components/StoryCard.jsx";
 import AdminDashboard from "./features/newsroom/AdminDashboard.jsx";
 
+const PUBLIC_SITE_ORIGIN = (import.meta.env.VITE_KRAANTIINFO_PUBLIC_SITE_URL || "https://www.kraantiinfo.in").replace(/\/+$/, "");
+
+function readSsrArticle() {
+  try {
+    const element = document.getElementById("seo-article-data");
+    const article = element ? JSON.parse(element.textContent || "null") : null;
+    return article && article._id && article.title && article.summary ? article : null;
+  } catch {
+    return null;
+  }
+}
+
 function formatDate(value) {
   return new Intl.DateTimeFormat("hi-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date(value));
 }
@@ -84,7 +96,7 @@ function App() {
   const [category, setCategory] = useState(() => categoryFromLocation());
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
-  const [selected, setSelected] = useState(null);
+  const [selected, setSelected] = useState(readSsrArticle);
   const [adminOpen, setAdminOpen] = useState(false);
   const [adminToken, setAdminToken] = useState("");
   const [mobileMenu, setMobileMenu] = useState(false);
@@ -92,7 +104,7 @@ function App() {
   const [questions, setQuestions] = useState([]);
   const [question, setQuestion] = useState("");
   const [assistantLoading, setAssistantLoading] = useState(false);
-  const [apiStatus, setApiStatus] = useState("demo");
+  const [apiStatus, setApiStatus] = useState(() => readSsrArticle() ? "live" : "demo");
   const [saveMessage, setSaveMessage] = useState("");
 
   useEffect(() => {
@@ -182,10 +194,9 @@ function App() {
       canonical.rel = "canonical";
       document.head.append(canonical);
     }
-    const canonicalOrigin = (import.meta.env.KRAANTIINFO_PUBLIC_SITE_URL || window.location.origin).replace(/\/+$/, "");
     const canonicalUrl = selected
-      ? `${canonicalOrigin}/article/${encodeURIComponent(selected._id)}`
-      : `${canonicalOrigin}${categoryPath(category)}`;
+      ? `${PUBLIC_SITE_ORIGIN}/article/${encodeURIComponent(selected._id)}`
+      : `${PUBLIC_SITE_ORIGIN}${categoryPath(category)}`;
     canonical.href = canonicalUrl;
     const metaValues = [
       ["property", "og:title", selected ? `${selected.title} | KraantiInfo` : defaultTitle],
@@ -220,9 +231,14 @@ function App() {
         articleSection: selected.category,
         datePublished: selected.publishedAt,
         dateModified: selected.updatedAt || selected.publishedAt,
-        author: { "@type": "Organization", name: brandedAuthor(selected.author) },
-        publisher: { "@type": "Organization", name: "KraantiInfo" },
-        mainEntityOfPage: canonicalUrl,
+        author: { "@type": "Organization", name: brandedAuthor(selected.author), url: PUBLIC_SITE_ORIGIN },
+        publisher: {
+          "@type": "Organization",
+          name: "KraantiInfo",
+          url: PUBLIC_SITE_ORIGIN,
+          logo: { "@type": "ImageObject", url: `${PUBLIC_SITE_ORIGIN}/favicon.svg` }
+        },
+        mainEntityOfPage: { "@type": "WebPage", "@id": canonicalUrl },
         inLanguage: selected.language || "hi"
       });
       document.head.append(schema);
