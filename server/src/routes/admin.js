@@ -19,6 +19,7 @@ const router = Router();
 const sensitiveCategories = /politic|election|crime|health|business|finance|death|market|stock|bank|assault|arrest|murder|injur|fatal|disease|drug|court/i;
 const demoProvider = new MockNewsProvider();
 let lastRun = null;
+const isDraftLanguage = language => language === "hi" || language === "en";
 
 const databaseReady = () => mongoose.connection.readyState === 1;
 
@@ -172,14 +173,18 @@ router.post("/engine/run-demo", async (_req, res) => {
   res.json({ demo: true, found: stories.length, duplicates: 0, needsReview: stories.length, message: "Demo discovery complete. No external sources were contacted." });
 });
 
-router.post("/engine/collect", async (_req, res, next) => {
+router.post("/engine/collect", async (req, res, next) => {
   if (process.env.NEWS_ENGINE_ENABLED !== "true") {
     return res.status(503).json({ error: "External news collection is disabled. Set NEWS_ENGINE_ENABLED=true on the server after reviewing provider terms and configuring approved sources." });
   }
   if (!databaseReady()) return res.status(503).json({ error: "MongoDB is required to collect and deduplicate source articles." });
+  const requestedLanguage = req.body?.language;
+  if (requestedLanguage !== undefined && !isDraftLanguage(requestedLanguage)) {
+    return res.status(400).json({ error: "Choose Hindi or English for AI drafts." });
+  }
   try {
     const collection = await collectEnabledSources();
-    const editorial = await processCollectedCandidates();
+    const editorial = await processCollectedCandidates({ draftLanguage: requestedLanguage });
     res.json({ ...collection, editorial });
   } catch (error) {
     if (/already in progress|disabled|No news sources are enabled/.test(error.message)) return res.status(409).json({ error: error.message });
@@ -187,10 +192,14 @@ router.post("/engine/collect", async (_req, res, next) => {
   }
 });
 
-router.post("/editorial/automation/run", async (_req, res, next) => {
+router.post("/editorial/automation/run", async (req, res, next) => {
   try {
     if (!databaseReady()) return res.status(503).json({ error: "MongoDB is required to process collected candidates." });
-    const result = await processCollectedCandidates();
+    const requestedLanguage = req.body?.language;
+    if (requestedLanguage !== undefined && !isDraftLanguage(requestedLanguage)) {
+      return res.status(400).json({ error: "Choose Hindi or English for AI drafts." });
+    }
+    const result = await processCollectedCandidates({ draftLanguage: requestedLanguage });
     if (!result.enabled) {
       return res.status(503).json({ error: "AI auto-processing is disabled. Set AI_AUTO_PROCESSING_ENABLED=true on the server and restart it." });
     }
@@ -268,6 +277,8 @@ router.get("/editorial/published-articles", async (req, res, next) => {
 router.post("/collected-articles/:id/generate-draft", async (req, res, next) => {
   try {
     if (!databaseReady()) return res.status(503).json({ error: "MongoDB is required to create editorial drafts." });
+    const language = req.body?.language ?? "hi";
+    if (!isDraftLanguage(language)) return res.status(400).json({ error: "Choose Hindi or English for the AI draft." });
     const candidate = await SourceArticle.findById(req.params.id);
     if (!candidate) return res.status(404).json({ error: "Collected source item not found." });
     if (candidate.status !== "collected") {
@@ -276,7 +287,7 @@ router.post("/collected-articles/:id/generate-draft", async (req, res, next) => 
     if ((typeof candidate.description !== "string" || candidate.description.trim().length < 80) && countWords(candidate.contentText) < 100) {
       return res.status(422).json({ error: "Source mein AI article ke liye paryapt details nahi hain. Behtar description ya source details wala candidate chunen." });
     }
-    const generated = await generateEditorialDraft(candidate);
+    const generated = await generateEditorialDraft(candidate, { language });
     const article = await Article.create({
       sourceArticle: candidate._id,
       title: generated.title,
@@ -291,7 +302,7 @@ router.post("/collected-articles/:id/generate-draft", async (req, res, next) => 
       image: candidate.imageUrl,
       imageAlt: candidate.title,
       videoUrl: candidate.videoUrl,
-      language: "hi",
+      language,
       tags: [generated.category],
       status: "draft"
     });
@@ -353,6 +364,8 @@ router.post("/collected-articles/:id/draft", async (req, res, next) => {
     if (candidate.status !== "collected") return res.status(409).json({ error: "This source item is no longer awaiting editorial processing." });
 
     const { title, summary, body, category, author } = req.body ?? {};
+    const language = req.body?.language ?? "hi";
+    if (!isDraftLanguage(language)) return res.status(400).json({ error: "Choose Hindi or English for this draft." });
     if ([title, summary, body, category].some(value => typeof value !== "string" || !value.trim())) {
       return res.status(400).json({ error: "Write an original headline, summary, article body, and category before saving a draft." });
     }
@@ -378,7 +391,7 @@ router.post("/collected-articles/:id/draft", async (req, res, next) => {
       image: candidate.imageUrl,
       imageAlt: candidate.title,
       videoUrl: candidate.videoUrl,
-      language: "hi",
+      language,
       tags: [cleanCategory],
       status: "draft"
     });

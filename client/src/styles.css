@@ -281,6 +281,8 @@ button { cursor: pointer; }
 .inline-alert button { display: grid; place-items: center; margin-left: auto; border: 0; background: none; }
 .inline-alert--success { background: #e9f0e9; color: #46634a; }
 .candidates-panel { margin-top: 18px; }
+.draft-language-picker { display: flex; align-items: center; gap: 9px; margin: 10px 0 0; color: #747871; font-size: 9px; }
+.draft-language-picker select { min-width: 110px; height: 31px; padding: 0 8px; border: 1px solid #deddd5; background: #fbfaf7; color: #414641; font-size: 9px; }
 .candidate-count { color: #757971; font-size: 9px; }
 .candidate-list { border-top: 1px solid #e7e5df; }
 .candidate-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px 20px; padding: 14px 3px; border-bottom: 1px solid #e7e5df; }

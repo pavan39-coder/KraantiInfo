@@ -67,11 +67,13 @@ function compareCandidatePriority(left, right) {
 
 export async function processCollectedCandidates({
   now = new Date(),
+  draftLanguage = process.env.AI_AUTO_DRAFT_LANGUAGE,
   selectionDraftGenerator = selectAndGenerateEditorialDraft,
   bloggerPublisher = publishArticleToBlogger,
   candidateModel = SourceArticle,
   articleModel = Article
 } = {}) {
+  const outputLanguage = draftLanguage === "en" ? "en" : "hi";
   if (process.env.AI_AUTO_PROCESSING_ENABLED !== "true") {
     return { enabled: false, processed: 0, published: 0, review: 0 };
   }
@@ -111,11 +113,11 @@ export async function processCollectedCandidates({
     }
 
     // Select first, then write the required long-form report from only the selected source's permitted full text.
-    const selection = await selectionDraftGenerator(unseen);
+    const selection = await selectionDraftGenerator(unseen, { language: outputLanguage });
     const candidate = unseen.find(item => String(item._id) === selection.selectedCandidateId);
     if (!candidate) throw new Error("The AI provider selected an unknown source candidate. Please retry.");
     const generated = {
-      ...await generateEditorialDraft(candidate),
+      ...await generateEditorialDraft(candidate, { language: outputLanguage }),
       selectedCandidateId: selection.selectedCandidateId,
       selectionReason: selection.selectionReason,
       selectionScore: selection.selectionScore
@@ -146,7 +148,7 @@ export async function processCollectedCandidates({
       image: candidate.imageUrl,
       imageAlt: candidate.title,
       videoUrl: candidate.videoUrl,
-      language: "hi",
+      language: outputLanguage,
       tags: [generated.category],
       status: shouldAutoPublish ? "published" : "review",
       publishedAt: shouldAutoPublish ? now : undefined
@@ -179,6 +181,7 @@ export async function processCollectedCandidates({
       selectionScore: generated.selectionScore,
       selectionReason: generated.selectionReason,
       model: generated.model,
+      language: outputLanguage,
       failed: 0,
       failures: []
     };
