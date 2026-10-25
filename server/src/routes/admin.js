@@ -273,9 +273,8 @@ router.post("/collected-articles/:id/generate-draft", async (req, res, next) => 
     if (candidate.status !== "collected") {
       return res.status(409).json({ error: "This source item is no longer awaiting editorial processing." });
     }
-    const sourceWordCount = countWords(candidate.contentText);
-    if (sourceWordCount < MINIMUM_ARTICLE_WORDS) {
-      return res.status(422).json({ error: `Is source mein sirf ${sourceWordCount} permitted words hain. AI draft ke liye source terms ke hisaab se enabled full text aur kam se kam ${MINIMUM_ARTICLE_WORDS} source words chahiye.` });
+    if ((typeof candidate.description !== "string" || candidate.description.trim().length < 80) && countWords(candidate.contentText) < 100) {
+      return res.status(422).json({ error: "Source mein AI article ke liye paryapt details nahi hain. Behtar description ya source details wala candidate chunen." });
     }
     const generated = await generateEditorialDraft(candidate);
     const article = await Article.create({
@@ -301,7 +300,6 @@ router.post("/collected-articles/:id/generate-draft", async (req, res, next) => 
     res.status(201).json({ data: article, generatedBy: generated.model });
   } catch (error) {
     if (/^The AI draft contains/.test(error.message)) return res.status(422).json({ error: error.message });
-    if (/^This item has/.test(error.message)) return res.status(422).json({ error: error.message });
     if (/^Configure OPENROUTER_API_KEY/.test(error.message)) {
       return res.status(503).json({ error: error.message });
     }

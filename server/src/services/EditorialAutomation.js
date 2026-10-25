@@ -18,8 +18,8 @@ export function assessAutoDraftCandidate(candidate, now = new Date()) {
   if (!source || source.reliabilityScore < MIN_SOURCE_RELIABILITY) return "Source reliability is below the automatic processing threshold.";
   if (!candidate.sourceName && !source.name) return "Source attribution is missing.";
   if (!candidate.url || !candidate.title) return "A source URL or headline is missing.";
-  if (countWords(candidate.contentText) < MINIMUM_ARTICLE_WORDS) {
-    return `A permitted full source text with at least ${MINIMUM_ARTICLE_WORDS} words is required for an AI article; this candidate will stay in the collected queue.`;
+  if ((typeof candidate.description !== "string" || candidate.description.trim().length < 80) && countWords(candidate.contentText) < 100) {
+    return "The source has too little detail for a useful AI article; this candidate will stay in the collected queue.";
   }
   const publishedAt = candidate.publishedAt ? new Date(candidate.publishedAt) : null;
   if (!publishedAt || Number.isNaN(publishedAt.getTime()) || publishedAt > now || now - publishedAt > MAX_SOURCE_AGE_MS) {
@@ -36,6 +36,7 @@ export function assessAutoPublishCandidate(candidate, draft, now = new Date()) {
   const draftEligibilityIssue = assessAutoDraftCandidate(candidate, now);
   if (draftEligibilityIssue) return draftEligibilityIssue;
   if ((candidate.source?.reliabilityScore || 0) < AUTO_PUBLISH_MIN_RELIABILITY) return "Source reliability is below the automatic publishing threshold.";
+  if (countWords(candidate.contentText) < MINIMUM_ARTICLE_WORDS) return "The AI used source metadata for this long-form explainer; human review is required before publishing.";
   if (typeof candidate.description !== "string" || candidate.description.trim().length < AUTO_PUBLISH_MIN_DESCRIPTION_LENGTH) {
     return "The source description is too short for automatic publishing.";
   }
@@ -121,6 +122,9 @@ export async function processCollectedCandidates({
     };
     const autoPublishReviewReason = assessAutoPublishCandidate(candidate, generated, now);
     const shouldAutoPublish = !autoPublishReviewReason;
+    const sourceBasisDisclosure = countWords(candidate.contentText) >= MINIMUM_ARTICLE_WORDS
+      ? "AI-assisted draft based on the source's permitted full text; not independently verified."
+      : "AI-authored explainer based on the source headline/description with contextual analysis; not independently verified and requires human review.";
     const article = await articleModel.create({
       sourceArticle: candidate._id,
       title: generated.title,
@@ -130,8 +134,8 @@ export async function processCollectedCandidates({
         generated.verificationNotes,
         `AI selection (${generated.selectionScore}/100): ${generated.selectionReason || "Selected as the most relevant candidate in this collection."}`,
         shouldAutoPublish
-          ? "Automation disclosure: generated from one approved source's permitted full text and not independently verified."
-          : `Automation disclosure: generated from one approved source's permitted full text and not independently verified. Review required. ${autoPublishReviewReason}`
+          ? `Automation disclosure: ${sourceBasisDisclosure}`
+          : `Automation disclosure: ${sourceBasisDisclosure} Review required. ${autoPublishReviewReason}`
       ].filter(Boolean).join("\n\n"),
       category: generated.category,
       author: "KraantiInfo AI Desk",
