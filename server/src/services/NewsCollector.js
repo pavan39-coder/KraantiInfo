@@ -5,7 +5,17 @@ import Parser from "rss-parser";
 import SourceArticle from "../models/SourceArticle.js";
 import NewsSource from "../models/NewsSource.js";
 
-const parser = new Parser();
+const parser = new Parser({
+  customFields: {
+    item: [
+      ["media:content", "mediaContent", { keepArray: true }],
+      ["media:thumbnail", "mediaThumbnail", { keepArray: true }],
+      ["media:group", "mediaGroup", { keepArray: true }],
+      ["media:player", "mediaPlayer", { keepArray: true }],
+      ["atom:link", "atomLinks", { keepArray: true }]
+    ]
+  }
+});
 const REQUEST_TIMEOUT_MS = 15000;
 const TRACKING_PARAMS = /^(utm_.+|fbclid|gclid|mc_cid|mc_eid|ref_src)$/i;
 let collectionInProgress = false;
@@ -79,6 +89,139 @@ function safeString(value, maximum = 3000) {
   return typeof value === "string" ? value.trim().slice(0, maximum) : "";
 }
 
+function cleanFeedText(value, maximum = 30000) {
+  if (typeof value !== "string") return "";
+  return value
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<\/(p|div|li|h[1-6]|br|blockquote|tr)>/gi, "\n\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#(\d+);/g, (match, code) => {
+      const point = Number(code);
+      return point <= 0x10ffff ? String.fromCodePoint(point) : match;
+    })
+    .replace(/&#x([\da-f]+);/gi, (match, code) => {
+      const point = Number.parseInt(code, 16);
+      return point <= 0x10ffff ? String.fromCodePoint(point) : match;
+    })
+    .replace(/[\t\f\v ]+/g, " ")
+    .replace(/ *\n */g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim()
+    .slice(0, maximum);
+}
+
+function httpsMediaUrl(value, maximum = 2000) {
+  try {
+    const url = new URL(typeof value === "string" ? value : "");
+    if (url.protocol !== "https:" || url.username || url.password) return "";
+    const hostname = url.hostname.toLowerCase();
+    if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local") ||
+        (isIP(hostname) && isPrivateAddress(hostname))) return "";
+    return url.toString().slice(0, maximum);
+  } catch {
+    return "";
+  }
+}
+
+function classifyCategory(value, title, description, fallback) {
+  const text = `${safeString(value, 250)} ${title} ${description}`.toLowerCase();
+  const matches = [
+    ["Cricket", /\b(cricket|ipl|bcci|icc|test match|t20|odi)\b|क्रिकेट|आईपीएल|बीसीसीआई|टी20|वनडे/],
+    ["Sports", /\b(sport|football|hockey|tennis|badminton|olympic|athlet|wrestling)\b|खेल|फुटबॉल|हॉकी|टेनिस|बैडमिंटन/],
+    ["Education", /\b(education|school|university|college|exam|student|classroom)\b|शिक्षा|स्कूल|विश्वविद्यालय|कॉलेज|परीक्षा|छात्र/],
+    ["Jobs", /\b(jobs?|employment|recruitment|career|vacanc|hiring)\b|रोजगार|नौकरी|भर्ती|करियर/],
+    ["Agriculture", /\b(agriculture|farm(?:er|ing)?|crop|irrigation|harvest)\b|कृषि|किसान|फसल|सिंचाई/],
+    ["Environment", /\b(environment|climate|pollution|conservation|wildlife|carbon)\b|पर्यावरण|जलवायु|प्रदूषण|वन्यजीव/],
+    ["Technology", /\b(technology|tech|artificial intelligence|\bai\b|software|cyber|startup|internet|mobile)\b|तकनीक|आर्टिफिशियल इंटेलिजेंस|साइबर/],
+    ["Business", /\b(business|economy|finance|market|bank|company|trade|industry|stock)\b|व्यापार|अर्थव्यवस्था|बाजार|बैंक|कंपनी/],
+    ["Health", /\b(health|medical|hospital|medicine|doctor|disease|wellness)\b|स्वास्थ्य|अस्पताल|चिकित्सा|डॉक्टर|बीमारी/],
+    ["Entertainment", /\b(entertainment|film|movie|cinema|bollywood|music|celebrity|streaming)\b|मनोरंजन|फिल्म|सिनेमा|बॉलीवुड|संगीत/],
+    ["Science", /\b(science|research|space|nasa|isro|scientist|discovery)\b|विज्ञान|अनुसंधान|अंतरिक्ष|इसरो/],
+    ["Politics", /\b(politic|election|parliament|minister|government|assembly|campaign)\b|राजनीति|चुनाव|संसद|मंत्री|सरकार/],
+    ["World", /\b(world|global|international|foreign|united nations|diplomacy)\b|दुनिया|वैश्विक|अंतरराष्ट्रीय|विदेश/],
+    ["Lifestyle", /\b(lifestyle|travel|food|fashion|relationships|culture)\b|जीवनशैली|यात्रा|खाना|फैशन|संस्कृति/],
+    ["Opinion", /\b(opinion|editorial|column|commentary|perspective)\b|विचार|संपादकीय|राय/]
+  ];
+  return matches.find(([, pattern]) => pattern.test(text))?.[0] || fallback || "India";
+}
+
+function mediaFieldUrl(value) {
+  if (typeof value === "string") return value;
+  return value?.url || value?.$?.url || value?.href || value?.$?.href || value?._ || "";
+}
+
+function isVideoMedia(url, mimeType = "") {
+  if (mimeType.toLowerCase().startsWith("video/") || /\.(mp4|m4v|webm|ogv)(?:$|\?)/i.test(url)) return true;
+  try {
+    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, "");
+    return host === "youtu.be" || host === "youtube.com" || host.endsWith(".youtube.com") ||
+      host === "vimeo.com" || host.endsWith(".vimeo.com");
+  } catch {
+    return false;
+  }
+}
+
+function mediaAttribute(value, name) {
+  return value?.[name] || value?.$?.[name] || "";
+}
+
+function asArray(value) {
+  return value == null ? [] : Array.isArray(value) ? value : [value];
+}
+
+function feedMediaItems(item) {
+  const groups = asArray(item.mediaGroup).flatMap(group => asArray(group?.["media:content"]));
+  return [
+    ...asArray(item.enclosure),
+    ...asArray(item.mediaContent),
+    ...groups,
+    ...asArray(item.mediaPlayer),
+    ...asArray(item.atomLinks),
+    ...asArray(item.links)
+  ];
+}
+
+function mediaUrl(item) {
+  const url = mediaFieldUrl(item);
+  const mimeType = mediaAttribute(item, "type");
+  const medium = String(mediaAttribute(item, "medium")).toLowerCase();
+  const relation = String(mediaAttribute(item, "rel")).toLowerCase();
+  return medium === "video" || (relation === "enclosure" && mimeType.toLowerCase().startsWith("video/")) || isVideoMedia(url, mimeType)
+    ? httpsMediaUrl(url)
+    : "";
+}
+
+function imageUrl(item) {
+  const url = mediaFieldUrl(item);
+  const mimeType = mediaAttribute(item, "type");
+  const medium = String(mediaAttribute(item, "medium")).toLowerCase();
+  const relation = String(mediaAttribute(item, "rel")).toLowerCase();
+  if (isVideoMedia(url, mimeType) || isAudioMedia(url, mimeType)) return "";
+  if (medium === "image" || mimeType.toLowerCase().startsWith("image/") ||
+      (relation === "enclosure" && /\.(jpg|jpeg|png|gif|webp|avif)(?:$|\?)/i.test(url)) ||
+      /\.(jpg|jpeg|png|gif|webp|avif)(?:$|\?)/i.test(url)) return httpsMediaUrl(url);
+  return "";
+}
+
+function embeddedVideoLink(value) {
+  if (typeof value !== "string") return "";
+  for (const match of value.matchAll(/(?:src|href)\s*=\s*["']([^"']+)["']/gi)) {
+    const candidate = match[1].replaceAll("&amp;", "&");
+    if (isVideoMedia(candidate)) return httpsMediaUrl(candidate);
+  }
+  return "";
+}
+
+function isAudioMedia(url, mimeType = "") {
+  return mimeType.toLowerCase().startsWith("audio/") || /\.(mp3|m4a|aac|wav|ogg)(?:$|\?)/i.test(url);
+}
+
 function dateOrNull(value) {
   if (!value) return null;
   const normalized = typeof value === "string" && /^\d{8}T\d{6}Z$/.test(value)
@@ -109,12 +252,14 @@ export function normalizeRecord(record, source) {
     description,
     url: originalUrl,
     canonicalUrl,
-    imageUrl: safeString(record.imageUrl, 2000),
+    contentText: source.allowFullText === true ? cleanFeedText(record.contentText, 30000) : "",
+    imageUrl: source.allowMedia === true ? httpsMediaUrl(record.imageUrl) : "",
+    videoUrl: source.allowMedia === true ? httpsMediaUrl(record.videoUrl) : "",
     sourceName: safeString(record.sourceName, 200),
     author: safeString(record.author, 200),
     language: safeString(record.language, 20) || source.language,
     country: safeString(record.country, 50) || source.country,
-    category: safeString(record.category, 100) || source.category,
+    category: classifyCategory(record.category, title, description, source.category),
     publishedAt,
     dedupeKey: hash(canonicalUrl),
     titleFingerprint: hash(`${normalizedTitle}|${publishDay}`)
@@ -134,9 +279,11 @@ async function collectNewsData(source) {
   if (!process.env.NEWSDATA_API_KEY) throw new Error("Set NEWSDATA_API_KEY in the server environment before enabling this source.");
   const url = new URL("https://newsdata.io/api/1/latest");
   url.searchParams.set("apikey", process.env.NEWSDATA_API_KEY);
-  url.searchParams.set("language", source.language || "en");
+  url.searchParams.set("language", source.language || "hi,en");
   url.searchParams.set("country", source.country || "in");
-  url.searchParams.set("size", "10");
+  const requestedSize = Number(process.env.NEWSDATA_PAGE_SIZE) || 10;
+  url.searchParams.set("size", String(Math.min(Math.max(requestedSize, 1), 50)));
+  if (source.allowFullText === true) url.searchParams.set("full_content", "1");
   if (source.endpoint) url.searchParams.set("q", source.endpoint.trim());
   const payload = await fetchJson(url);
   if (payload.status !== "success" || !Array.isArray(payload.results)) {
@@ -145,8 +292,10 @@ async function collectNewsData(source) {
   return payload.results.map(item => ({
     title: item.title,
     description: item.description,
+    contentText: source.allowFullText === true ? item.content : "",
     url: item.link,
     imageUrl: item.image_url,
+    videoUrl: item.video_url,
     sourceName: item.source_name || item.source_id,
     author: item.creator,
     language: item.language,
@@ -164,7 +313,10 @@ async function collectGdelt(source) {
   url.searchParams.set("maxrecords", "50");
   url.searchParams.set("sort", "DateDesc");
   const gdeltLanguages = { en: "English", es: "Spanish", fr: "French", de: "German", hi: "Hindi", ar: "Arabic", pt: "Portuguese", ru: "Russian", zh: "Chinese" };
-  if (source.language) url.searchParams.set("sourcelang", gdeltLanguages[source.language.toLowerCase()] || source.language);
+  if (source.language) {
+    const preferredLanguage = source.language.split(",")[0].trim().toLowerCase();
+    url.searchParams.set("sourcelang", gdeltLanguages[preferredLanguage] || preferredLanguage);
+  }
   const payload = await fetchJson(url);
   if (payload.status === "error") throw new Error(payload.message || "GDELT returned an error.");
   if (!Array.isArray(payload.articles)) throw new Error("GDELT returned an unexpected response.");
@@ -201,18 +353,32 @@ async function collectFeed(source) {
   const xml = await response.text();
   if (xml.length > 2_000_000) throw new Error("RSS feed exceeds the 2 MB size limit.");
   const feed = await parser.parseString(xml);
-  return (feed.items || []).map(item => ({
-    title: item.title,
-    description: item.contentSnippet || item.summary,
-    url: item.link,
-    imageUrl: item.enclosure?.url || "",
-    sourceName: feed.title || source.name,
-    author: item.creator || item.author,
-    language: source.language,
-    country: source.country,
-    category: item.categories?.[0] || source.category,
-    publishedAt: item.isoDate || item.pubDate
-  }));
+  return (feed.items || []).map(item => {
+    const attachments = feedMediaItems(item);
+    const mediaContentItems = [
+      ...asArray(item.mediaContent),
+      ...asArray(item.mediaGroup).flatMap(group => asArray(group?.["media:content"]))
+    ];
+    const embeddedContent = `${typeof item.content === "string" ? item.content : ""} ${typeof item["content:encoded"] === "string" ? item["content:encoded"] : ""} ${typeof item.summary === "string" ? item.summary : ""}`;
+    return {
+      title: item.title,
+      description: item.contentSnippet || item.summary,
+      contentText: source.allowFullText === true ? (item["content:encoded"] || item.content || item.summary || "") : "",
+      url: item.link,
+      imageUrl: attachments.map(imageUrl).find(Boolean) || asArray(item.mediaThumbnail).map(mediaFieldUrl).map(value => httpsMediaUrl(value)).find(Boolean) ||
+        mediaContentItems.map(item => {
+          const url = mediaFieldUrl(item);
+          return /\.(jpg|jpeg|png|gif|webp|avif)(?:$|\?)/i.test(url) ? httpsMediaUrl(url) : "";
+        }).find(Boolean) || "",
+      videoUrl: attachments.map(mediaUrl).find(Boolean) || embeddedVideoLink(embeddedContent),
+      sourceName: feed.title || source.name,
+      author: item.creator || item.author,
+      language: source.language,
+      country: source.country,
+      category: item.categories?.[0] || source.category,
+      publishedAt: item.isoDate || item.pubDate
+    };
+  });
 }
 
 async function fetchSource(source) {

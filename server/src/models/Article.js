@@ -20,6 +20,8 @@ const articleSchema = new mongoose.Schema(
     },
     image: { type: String, default: "" },
     imageAlt: { type: String, default: "" },
+    videoUrl: { type: String, default: "" },
+    language: { type: String, default: "hi" },
     sourceName: { type: String, default: "" },
     sourceUrl: { type: String, default: "" },
     sourceArticle: { type: mongoose.Schema.Types.ObjectId, ref: "SourceArticle", unique: true, sparse: true },

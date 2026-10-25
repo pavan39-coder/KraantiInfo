@@ -5,8 +5,14 @@ export const categories = [
   "Business",
   "Technology",
   "Sports",
+  "Cricket",
   "Entertainment",
   "Science",
   "Health",
-  "Lifestyle"
+  "Education",
+  "Jobs",
+  "Agriculture",
+  "Environment",
+  "Lifestyle",
+  "Opinion"
 ];

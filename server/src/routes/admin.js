@@ -12,6 +12,7 @@ import { MockNewsProvider } from "../providers/MockNewsProvider.js";
 import { collectEnabledSources, getLastCollection } from "../services/NewsCollector.js";
 import { getDatabaseStatus } from "../config/database.js";
 import { categories } from "../constants/categories.js";
+import { countWords, MINIMUM_ARTICLE_WORDS } from "../utils/wordCount.js";
 import { isBloggerConfigured, isBloggerPublishingEnabled, publishArticleToBlogger, retryFailedBloggerArticles } from "../services/BloggerPublisher.js";
 
 const router = Router();
@@ -114,6 +115,8 @@ router.post("/sources", async (req, res, next) => {
       language: req.body.language,
       country: req.body.country,
       category: req.body.category,
+      allowFullText: req.body.allowFullText === true,
+      allowMedia: req.body.allowMedia === true,
       reliabilityScore: req.body.reliabilityScore
     });
     res.status(201).json({ data: source });
@@ -125,16 +128,37 @@ router.post("/sources", async (req, res, next) => {
 router.patch("/sources/:id", async (req, res, next) => {
   try {
     if (!databaseReady()) return res.status(503).json({ error: "MongoDB is required to update a news source. Demo mode is read-only." });
-    if (typeof req.body.enabled !== "boolean") return res.status(400).json({ error: "enabled must be a boolean." });
+    const updates = {};
+    if (Object.hasOwn(req.body, "enabled")) {
+      if (typeof req.body.enabled !== "boolean") return res.status(400).json({ error: "enabled must be a boolean." });
+      updates.enabled = req.body.enabled;
+    }
+    if (Object.hasOwn(req.body, "language")) {
+      if (!["hi", "hi,en", "en"].includes(req.body.language)) return res.status(400).json({ error: "Choose Hindi, Hindi plus English, or English for this source." });
+      updates.language = req.body.language;
+    }
+    if (Object.hasOwn(req.body, "category")) {
+      if (!categories.includes(req.body.category)) return res.status(400).json({ error: "Choose a supported KraantiInfo category." });
+      updates.category = req.body.category;
+    }
+    if (Object.hasOwn(req.body, "allowFullText")) {
+      if (typeof req.body.allowFullText !== "boolean") return res.status(400).json({ error: "allowFullText must be a boolean." });
+      updates.allowFullText = req.body.allowFullText;
+    }
+    if (Object.hasOwn(req.body, "allowMedia")) {
+      if (typeof req.body.allowMedia !== "boolean") return res.status(400).json({ error: "allowMedia must be a boolean." });
+      updates.allowMedia = req.body.allowMedia;
+    }
+    if (!Object.keys(updates).length) return res.status(400).json({ error: "Provide at least one source setting to update." });
     const current = await NewsSource.findById(req.params.id);
     if (!current) return res.status(404).json({ error: "News source not found." });
-    if (req.body.enabled && current.type === "NEWSDATA" && !process.env.NEWSDATA_API_KEY) {
+    if (updates.enabled && current.type === "NEWSDATA" && !process.env.NEWSDATA_API_KEY) {
       return res.status(400).json({ error: "Set NEWSDATA_API_KEY in the server environment before enabling NewsData.io." });
     }
-    if (req.body.enabled && ["RSS", "GOVERNMENT_FEED"].includes(current.type) && !current.endpoint) {
+    if (updates.enabled && ["RSS", "GOVERNMENT_FEED"].includes(current.type) && !current.endpoint) {
       return res.status(400).json({ error: "Configure an HTTPS feed URL before enabling this source." });
     }
-    const source = await NewsSource.findByIdAndUpdate(req.params.id, { enabled: Boolean(req.body.enabled) }, { new: true, runValidators: true });
+    const source = await NewsSource.findByIdAndUpdate(req.params.id, { $set: updates }, { new: true, runValidators: true });
     if (!source) return res.status(404).json({ error: "News source not found." });
     res.json({ data: source });
   } catch (error) {
@@ -249,6 +273,10 @@ router.post("/collected-articles/:id/generate-draft", async (req, res, next) => 
     if (candidate.status !== "collected") {
       return res.status(409).json({ error: "This source item is no longer awaiting editorial processing." });
     }
+    const sourceWordCount = countWords(candidate.contentText);
+    if (sourceWordCount < MINIMUM_ARTICLE_WORDS) {
+      return res.status(422).json({ error: `Is source mein sirf ${sourceWordCount} permitted words hain. AI draft ke liye source terms ke hisaab se enabled full text aur kam se kam ${MINIMUM_ARTICLE_WORDS} source words chahiye.` });
+    }
     const generated = await generateEditorialDraft(candidate);
     const article = await Article.create({
       sourceArticle: candidate._id,
@@ -263,6 +291,8 @@ router.post("/collected-articles/:id/generate-draft", async (req, res, next) => 
       sourceUrl: candidate.url,
       image: candidate.imageUrl,
       imageAlt: candidate.title,
+      videoUrl: candidate.videoUrl,
+      language: "hi",
       tags: [generated.category],
       status: "draft"
     });
@@ -270,6 +300,8 @@ router.post("/collected-articles/:id/generate-draft", async (req, res, next) => 
     await candidate.save();
     res.status(201).json({ data: article, generatedBy: generated.model });
   } catch (error) {
+    if (/^The AI draft contains/.test(error.message)) return res.status(422).json({ error: error.message });
+    if (/^This item has/.test(error.message)) return res.status(422).json({ error: error.message });
     if (/^Configure OPENROUTER_API_KEY/.test(error.message)) {
       return res.status(503).json({ error: error.message });
     }
@@ -296,6 +328,10 @@ router.patch("/editorial/articles/:id", async (req, res, next) => {
     if (!categories.includes(cleanCategory)) return res.status(400).json({ error: "Choose a supported KraantiInfo category." });
     if (title.trim().length > 180 || summary.trim().length > 500 || body.trim().length > 20000) {
       return res.status(400).json({ error: "Headline, summary, or article body exceeds the allowed length." });
+    }
+    const bodyWordCount = countWords(body);
+    if (bodyWordCount < MINIMUM_ARTICLE_WORDS) {
+      return res.status(400).json({ error: `Article body has ${bodyWordCount} words. Write at least ${MINIMUM_ARTICLE_WORDS} words before saving.` });
     }
     article.title = title.trim();
     article.summary = summary.trim();
@@ -327,6 +363,10 @@ router.post("/collected-articles/:id/draft", async (req, res, next) => {
     if (title.trim().length > 180 || summary.trim().length > 500 || body.trim().length > 20000) {
       return res.status(400).json({ error: "Headline, summary, or article body exceeds the allowed length." });
     }
+    const bodyWordCount = countWords(body);
+    if (bodyWordCount < MINIMUM_ARTICLE_WORDS) {
+      return res.status(400).json({ error: `Article body has ${bodyWordCount} words. Write at least ${MINIMUM_ARTICLE_WORDS} words before saving.` });
+    }
 
     const article = await Article.create({
       sourceArticle: candidate._id,
@@ -339,6 +379,8 @@ router.post("/collected-articles/:id/draft", async (req, res, next) => {
       sourceUrl: candidate.url,
       image: candidate.imageUrl,
       imageAlt: candidate.title,
+      videoUrl: candidate.videoUrl,
+      language: "hi",
       tags: [cleanCategory],
       status: "draft"
     });
@@ -368,6 +410,10 @@ router.patch("/editorial/articles/:id/status", async (req, res, next) => {
       return res.status(409).json({ error: `An article in ${article.status} status cannot be moved to ${status}.` });
     }
     if (status === "published") {
+      const bodyWordCount = countWords(article.body);
+      if (bodyWordCount < MINIMUM_ARTICLE_WORDS) {
+        return res.status(400).json({ error: `This article has ${bodyWordCount} words. Add at least ${MINIMUM_ARTICLE_WORDS} words before publishing.` });
+      }
       if (!article.title || !article.summary || !article.body || !article.sourceUrl || !article.sourceName) {
         return res.status(400).json({ error: "A headline, summary, complete article body, and source attribution are required before publishing." });
       }

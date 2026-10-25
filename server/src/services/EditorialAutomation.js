@@ -1,11 +1,11 @@
 import Article from "../models/Article.js";
 import SourceArticle from "../models/SourceArticle.js";
-import { selectAndGenerateEditorialDraft } from "./EditorialDraftAgent.js";
+import { generateEditorialDraft, selectAndGenerateEditorialDraft } from "./EditorialDraftAgent.js";
 import { publishArticleToBlogger } from "./BloggerPublisher.js";
+import { countWords, MINIMUM_ARTICLE_WORDS } from "../utils/wordCount.js";
 
 const MIN_SOURCE_RELIABILITY = 75;
 const MAX_SOURCE_AGE_MS = 24 * 60 * 60 * 1000;
-const MIN_DESCRIPTION_LENGTH = 80;
 const AUTO_PUBLISH_MIN_RELIABILITY = 75;
 const AUTO_PUBLISH_MAX_SOURCE_AGE_MS = 24 * 60 * 60 * 1000;
 const AUTO_PUBLISH_MIN_DESCRIPTION_LENGTH = 80;
@@ -18,8 +18,8 @@ export function assessAutoDraftCandidate(candidate, now = new Date()) {
   if (!source || source.reliabilityScore < MIN_SOURCE_RELIABILITY) return "Source reliability is below the automatic processing threshold.";
   if (!candidate.sourceName && !source.name) return "Source attribution is missing.";
   if (!candidate.url || !candidate.title) return "A source URL or headline is missing.";
-  if (typeof candidate.description !== "string" || candidate.description.trim().length < MIN_DESCRIPTION_LENGTH) {
-    return "The source description does not contain enough information for an AI draft.";
+  if (countWords(candidate.contentText) < MINIMUM_ARTICLE_WORDS) {
+    return `A permitted full source text with at least ${MINIMUM_ARTICLE_WORDS} words is required for an AI article; this candidate will stay in the collected queue.`;
   }
   const publishedAt = candidate.publishedAt ? new Date(candidate.publishedAt) : null;
   if (!publishedAt || Number.isNaN(publishedAt.getTime()) || publishedAt > now || now - publishedAt > MAX_SOURCE_AGE_MS) {
@@ -46,13 +46,19 @@ export function assessAutoPublishCandidate(candidate, draft, now = new Date()) {
     return "The source or generated copy may cover a sensitive or high-impact topic.";
   }
   if (!Number.isFinite(draft.selectionScore) || draft.selectionScore < 0 || draft.selectionScore > 100) return "The AI did not return a valid selection score.";
-  if (draft.body.trim().length < 180) return "The generated report is too short for automatic publishing.";
+  if (countWords(draft.body) < MINIMUM_ARTICLE_WORDS) return `The generated report is below the ${MINIMUM_ARTICLE_WORDS}-word minimum.`;
   return "";
 }
 
 function compareCandidatePriority(left, right) {
   const reliabilityDifference = (right.source?.reliabilityScore || 0) - (left.source?.reliabilityScore || 0);
   if (reliabilityDifference) return reliabilityDifference;
+  // If two sources are similarly trusted, give the AI a better chance to pick
+  // a story that can support a substantial report and useful reader media.
+  const reportingMaterialDifference = countWords(right.contentText) - countWords(left.contentText);
+  if (reportingMaterialDifference) return reportingMaterialDifference;
+  const mediaDifference = Number(Boolean(right.imageUrl || right.videoUrl)) - Number(Boolean(left.imageUrl || left.videoUrl));
+  if (mediaDifference) return mediaDifference;
   const freshnessDifference = new Date(right.publishedAt).getTime() - new Date(left.publishedAt).getTime();
   if (freshnessDifference) return freshnessDifference;
   return right.description.length - left.description.length;
@@ -103,10 +109,16 @@ export async function processCollectedCandidates({
       return { enabled: true, considered: candidates.length, eligible: eligible.length, processed: 0, published: 0, review: 0, failed: 0, failures: [] };
     }
 
-    // One request selects the best story and writes its first draft, preserving the free API daily quota.
-    const generated = await selectionDraftGenerator(unseen);
-    const candidate = unseen.find(item => String(item._id) === generated.selectedCandidateId);
+    // Select first, then write the required long-form report from only the selected source's permitted full text.
+    const selection = await selectionDraftGenerator(unseen);
+    const candidate = unseen.find(item => String(item._id) === selection.selectedCandidateId);
     if (!candidate) throw new Error("The AI provider selected an unknown source candidate. Please retry.");
+    const generated = {
+      ...await generateEditorialDraft(candidate),
+      selectedCandidateId: selection.selectedCandidateId,
+      selectionReason: selection.selectionReason,
+      selectionScore: selection.selectionScore
+    };
     const autoPublishReviewReason = assessAutoPublishCandidate(candidate, generated, now);
     const shouldAutoPublish = !autoPublishReviewReason;
     const article = await articleModel.create({
@@ -118,8 +130,8 @@ export async function processCollectedCandidates({
         generated.verificationNotes,
         `AI selection (${generated.selectionScore}/100): ${generated.selectionReason || "Selected as the most relevant candidate in this collection."}`,
         shouldAutoPublish
-          ? "Automation disclosure: automatically published from one approved source's headline and description; not independently verified."
-          : `Automation disclosure: generated from one approved source's headline and short description; not independently verified. Review required. ${autoPublishReviewReason}`
+          ? "Automation disclosure: generated from one approved source's permitted full text and not independently verified."
+          : `Automation disclosure: generated from one approved source's permitted full text and not independently verified. Review required. ${autoPublishReviewReason}`
       ].filter(Boolean).join("\n\n"),
       category: generated.category,
       author: "KraantiInfo AI Desk",
@@ -129,6 +141,8 @@ export async function processCollectedCandidates({
       sourceUrl: candidate.url,
       image: candidate.imageUrl,
       imageAlt: candidate.title,
+      videoUrl: candidate.videoUrl,
+      language: "hi",
       tags: [generated.category],
       status: shouldAutoPublish ? "published" : "review",
       publishedAt: shouldAutoPublish ? now : undefined
