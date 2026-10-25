@@ -12,6 +12,18 @@ const candidate = {
   url: "https://news.example/story",
   publishedAt: "2026-10-08T20:00:00.000Z"
 };
+const longArticleBody = Array.from({ length: 520 }, (_, index) => `context${index}`).join(" ");
+
+function generatedDraft(overrides = {}) {
+  return {
+    title: "A useful local service update",
+    summary: "A supported short summary.",
+    body: longArticleBody,
+    category: "India",
+    verificationNotes: "Check the linked source.",
+    ...overrides
+  };
+}
 
 test("automatic draft eligibility accepts a recent low-risk candidate with sufficient attribution and metadata", () => {
   assert.equal(assessAutoDraftCandidate(candidate, now), "");
@@ -25,7 +37,7 @@ test("automatic drafting holds sensitive stories for human review", () => {
 
 test("automatic drafting holds weak, incomplete, or stale candidates", () => {
   assert.match(assessAutoDraftCandidate({ ...candidate, source: { reliabilityScore: 74 } }, now), /reliability/);
-  assert.match(assessAutoDraftCandidate({ ...candidate, description: "Short description" }, now), /enough information/);
+  assert.match(assessAutoDraftCandidate({ ...candidate, description: "Short description" }, now), /too little detail/);
   assert.match(assessAutoDraftCandidate({ ...candidate, publishedAt: "2026-10-07T20:00:00.000Z" }, now), /older than 24 hours/);
 });
 
@@ -39,7 +51,7 @@ test("scheduled automation stays off unless explicitly enabled", async () => {
   }
 });
 
-test("scheduled automation asks AI to select and draft one candidate, then sends it to human review", async () => {
+test("scheduled automation drafts the highest-ranked candidate and sends metadata-only stories to review", async () => {
   const previousSetting = process.env.AI_AUTO_PROCESSING_ENABLED;
   process.env.AI_AUTO_PROCESSING_ENABLED = "true";
   const candidates = Array.from({ length: 4 }, (_, index) => ({
@@ -73,23 +85,17 @@ test("scheduled automation asks AI to select and draft one candidate, then sends
       now,
       candidateModel,
       articleModel,
-      selectionDraftGenerator: async items => ({
-        selectedCandidateId: String(items[1]._id),
-        selectionScore: 91,
-        selectionReason: "Strong public relevance.",
-        title: "A useful local service update",
-        summary: "A supported short summary.",
-        body: "A supported short report.",
-        category: "India",
-        verificationNotes: "Check the linked source."
-      })
+      draftGenerator: async item => {
+        assert.equal(String(item._id), "candidate-0");
+        return generatedDraft();
+      }
     });
     assert.equal(result.processed, 1);
     assert.equal(result.published, 0);
     assert.equal(result.review, 1);
-    assert.equal(result.selectionScore, 91);
+    assert.equal(result.selectionScore, 80);
     assert.equal(created.length, 1);
-    assert.equal(String(created[0].sourceArticle), "candidate-1");
+    assert.equal(String(created[0].sourceArticle), "candidate-0");
     assert.equal(created[0].autoPublished, false);
     assert.equal(created[0].status, "review");
     assert.equal(updated.length, 1);
@@ -124,14 +130,8 @@ test("all automatically generated stories remain in editorial review, including 
       now,
       candidateModel,
       articleModel,
-      selectionDraftGenerator: async items => ({
-        selectedCandidateId: String(items[0]._id),
-        selectionScore: 80,
-        selectionReason: "Selected for review.",
+      draftGenerator: async () => generatedDraft({
         title: "The court reviews a local matter",
-        summary: "A short report.",
-        body: "The source describes a court proceeding.",
-        category: "India",
         verificationNotes: "Verify the details."
       })
     });
@@ -155,6 +155,7 @@ test("automatic publishing accepts reliability 75 only when the other recent, de
     description: "A detailed report explains a new public technology service announced today, how residents can access it, the locations where it is available, and the schedule for its rollout across the city. The service is intended to improve access to local information and public facilities.",
     category: "Technology",
     source: { name: "Approved News", reliabilityScore: 75 },
+    contentText: longArticleBody,
     publishedAt: new Date(now.getTime() - 60 * 60 * 1000)
   };
   const created = [];
@@ -173,13 +174,8 @@ test("automatic publishing accepts reliability 75 only when the other recent, de
       now,
       candidateModel,
       articleModel,
-      selectionDraftGenerator: async items => ({
-        selectedCandidateId: String(items[0]._id),
-        selectionScore: 90,
-        selectionReason: "Specific and timely public interest.",
+      draftGenerator: async () => generatedDraft({
         title: "A public technology service expands access",
-        summary: "A city announced a new digital service for residents.",
-        body: "The city announced a new digital service for residents. The source says it will be available at several local facilities and provides a schedule for its rollout. Residents can check the linked source for the details and access information. The announcement describes the service as a way to make public information easier to reach.",
         category: "Technology",
         verificationNotes: "Original source only; independent verification is outstanding."
       })
@@ -189,7 +185,7 @@ test("automatic publishing accepts reliability 75 only when the other recent, de
     assert.equal(result.autoPublished, true);
     assert.equal(created[0].status, "published");
     assert.equal(created[0].autoPublished, true);
-    assert.match(created[0].verificationNotes, /automatically published/i);
+    assert.match(created[0].verificationNotes, /permitted full text/);
   } finally {
     if (previousProcessing === undefined) delete process.env.AI_AUTO_PROCESSING_ENABLED;
     else process.env.AI_AUTO_PROCESSING_ENABLED = previousProcessing;
@@ -219,7 +215,7 @@ test("failed provider drafts are reported so editors can see why automation did 
       now,
       candidateModel,
       articleModel,
-      selectionDraftGenerator: async () => { throw new Error("The AI provider returned an incomplete article draft. Please retry."); }
+      draftGenerator: async () => { throw new Error("The AI provider returned an incomplete article draft. Please retry."); }
     });
     assert.equal(result.enabled, true);
     assert.equal(result.eligible, 1);

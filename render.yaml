@@ -22,7 +22,9 @@ services:
       - key: OPENROUTER_API_KEY
         sync: false
       - key: OPENROUTER_MODEL
-        value: openrouter/free
+        value: google/gemma-4-31b-it:free
+      - key: OPENROUTER_FALLBACK_MODELS
+        value: google/gemma-4-26b-a4b-it:free
       - key: NEWS_ENGINE_ENABLED
         value: "true"
       - key: NEWS_COLLECTION_INTERVAL_MINUTES

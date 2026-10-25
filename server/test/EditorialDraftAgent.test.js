@@ -15,7 +15,7 @@ const candidate = {
 const draft = {
   title: "An original headline",
   summary: "A concise original summary.",
-  body: "A cautious first paragraph.\n\nA second paragraph with no unsupported claims.",
+  body: Array.from({ length: 520 }, (_, index) => `supported${index}`).join(" "),
   category: "India",
   verificationNotes: "Verify the primary claim and date against the source."
 };
@@ -53,7 +53,7 @@ test("AI draft generation sends only source metadata and validates the generated
   assert.equal(request.headers.Authorization, "Bearer test-secret");
   assert.equal(request.headers["X-Title"], "KraantiInfo");
   assert.equal(request.body.model, "test-model");
-  assert.match(request.body.messages[0].content, /Do not copy or closely paraphrase/);
+  assert.match(request.body.messages[0].content, /do not reproduce it, closely paraphrase it/);
   assert.match(request.body.messages[1].content, /A short source summary/);
   assert.deepEqual(result, { ...draft, model: "test-model" });
 });
@@ -67,11 +67,11 @@ test("AI draft generation retries malformed router output with a configured fall
     fetchImpl: async (_url, options) => {
       const body = JSON.parse(options.body);
       requests.push(body.model);
-      return successfulResponse(requests.length === 1 ? { ...draft, category: "Unknown" } : draft);
+      return successfulResponse(requests.length <= 2 ? { ...draft, category: "Unknown" } : draft);
     }
   });
 
-  assert.deepEqual(requests, ["router-model", "fallback-model"]);
+  assert.deepEqual(requests, ["router-model", "router-model", "fallback-model"]);
   assert.equal(result.model, "fallback-model");
 });
 

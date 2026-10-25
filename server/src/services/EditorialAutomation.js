@@ -68,6 +68,7 @@ function compareCandidatePriority(left, right) {
 export async function processCollectedCandidates({
   now = new Date(),
   draftLanguage = process.env.AI_AUTO_DRAFT_LANGUAGE,
+  draftGenerator = generateEditorialDraft,
   bloggerPublisher = publishArticleToBlogger,
   candidateModel = SourceArticle,
   articleModel = Article
@@ -121,7 +122,7 @@ export async function processCollectedCandidates({
       selectionScore: candidate.source.reliabilityScore
     };
     const generated = {
-      ...await generateEditorialDraft(candidate, { language: outputLanguage }),
+      ...await draftGenerator(candidate, { language: outputLanguage }),
       selectedCandidateId: selection.selectedCandidateId,
       selectionReason: selection.selectionReason,
       selectionScore: selection.selectionScore

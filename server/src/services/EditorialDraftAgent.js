@@ -1,6 +1,38 @@
 import { categories } from "../constants/categories.js";
 import { countWords, MINIMUM_ARTICLE_WORDS } from "../utils/wordCount.js";
 
+const DEFAULT_DRAFT_MODEL = "google/gemma-4-31b-it:free";
+const DEFAULT_FALLBACK_MODELS = ["google/gemma-4-26b-a4b-it:free"];
+
+function configuredDraftModel() {
+  const configuredModel = process.env.OPENROUTER_MODEL?.trim();
+  // openrouter/free can choose a model that does not return JSON even when
+  // response_format is requested. Keep old Render env settings compatible.
+  return !configuredModel || configuredModel === "openrouter/free"
+    ? DEFAULT_DRAFT_MODEL
+    : configuredModel;
+}
+
+function configuredFallbackModels() {
+  const configuredModels = (process.env.OPENROUTER_FALLBACK_MODELS || "")
+    .split(",")
+    .map(value => value.trim())
+    .filter(Boolean);
+  return configuredModels.length ? configuredModels : DEFAULT_FALLBACK_MODELS;
+}
+
+function extractMessageContent(payload) {
+  const content = payload?.choices?.[0]?.message?.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map(part => {
+      if (typeof part === "string") return part;
+      return typeof part?.text === "string" ? part.text : "";
+    }).join("");
+  }
+  return "";
+}
+
 function cleanText(value, maxLength) {
   return typeof value === "string" ? value.trim().slice(0, maxLength) : "";
 }
@@ -98,12 +130,9 @@ function normalizeSource(candidate) {
 
 export async function generateEditorialDraft(candidate, {
   apiKey = process.env.OPENROUTER_API_KEY,
-  model = process.env.OPENROUTER_MODEL || "openrouter/free",
+  model = configuredDraftModel(),
   language = "hi",
-  fallbackModels = (process.env.OPENROUTER_FALLBACK_MODELS || "")
-    .split(",")
-    .map(value => value.trim())
-    .filter(Boolean),
+  fallbackModels = configuredFallbackModels(),
   fetchImpl = fetch
 } = {}) {
   if (!apiKey) throw new Error("Configure OPENROUTER_API_KEY in server/.env to generate AI editorial drafts.");
@@ -168,6 +197,7 @@ export async function generateEditorialDraft(candidate, {
             temperature: 0.2,
             max_tokens: 5000,
             response_format: { type: "json_object" },
+            ...(requestedModel.startsWith("google/gemma-4-") ? { reasoning: { enabled: false } } : {}),
             messages: requestMessages
           })
         });
@@ -186,7 +216,8 @@ export async function generateEditorialDraft(candidate, {
           throw new Error("OpenRouter rejected the server API key. Check OPENROUTER_API_KEY in server/.env.");
         }
         if (response.status === 429) {
-          throw new Error("The OpenRouter rate limit or daily quota was reached. Check account usage or wait before trying again.");
+          lastFormatError = new Error("OpenRouter rate limit or quota was reached. Check account usage or wait before trying again.");
+          break;
         }
         if (response.status === 404 || response.status === 400 || response.status >= 500) {
           lastFormatError = new Error(`AI draft generation failed with OpenRouter status ${response.status} for ${requestedModel}.`);
@@ -199,10 +230,23 @@ export async function generateEditorialDraft(candidate, {
         throw new Error(`AI draft generation failed with OpenRouter status ${response.status}.`);
       }
 
-      const payload = await response.json();
-      const content = payload.choices?.[0]?.message?.content;
+      let payload;
+      try {
+        payload = await response.json();
+      } catch {
+        lastFormatError = new Error("The AI provider returned an unreadable response. Please retry.");
+        retryInstruction = draftRetryInstruction(lastFormatError);
+        if (attempt === 0) {
+          await waitBeforeRetry();
+          continue;
+        }
+        break;
+      }
+      const content = extractMessageContent(payload);
       if (typeof content !== "string" || !content.trim()) {
-        lastFormatError = new Error("The AI provider returned no article draft. Please retry.");
+        const finishReason = payload.choices?.[0]?.finish_reason;
+        const responseModel = payload.model || requestedModel;
+        lastFormatError = new Error(`The AI provider (${responseModel}) returned no article draft${finishReason ? `; finish reason: ${finishReason}` : ""}. Please retry.`);
         retryInstruction = draftRetryInstruction(lastFormatError);
         if (attempt === 0) {
           await waitBeforeRetry();
@@ -229,7 +273,7 @@ export async function generateEditorialDraft(candidate, {
 
 export async function selectAndGenerateEditorialDraft(candidates, {
   apiKey = process.env.OPENROUTER_API_KEY,
-  model = process.env.OPENROUTER_MODEL || "openrouter/free",
+  model = configuredDraftModel(),
   language = "hi",
   fetchImpl = fetch
 } = {}) {
@@ -287,8 +331,8 @@ export async function selectAndGenerateEditorialDraft(candidates, {
   }
 
   const payload = await response.json();
-  const content = payload.choices?.[0]?.message?.content;
-  if (typeof content !== "string" || !content.trim()) throw new Error("The AI provider returned no story selection. Please retry.");
+  const content = extractMessageContent(payload);
+  if (!content.trim()) throw new Error("The AI provider returned no story selection. Please retry.");
   const result = parseJsonObject(content);
   const selectedCandidateId = cleanText(result.selectedCandidateId, 100);
   if (!sourceMaterial.some(candidate => candidate.id === selectedCandidateId)) {
