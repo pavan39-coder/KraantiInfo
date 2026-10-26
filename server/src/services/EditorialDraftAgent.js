@@ -4,7 +4,9 @@ import { countWords, MINIMUM_ARTICLE_WORDS } from "../utils/wordCount.js";
 const DEFAULT_DRAFT_MODEL = "openrouter/free";
 const DEFAULT_FALLBACK_MODELS = [
   "google/gemma-4-26b-a4b-it:free",
-  "nvidia/nemotron-3.5-super-vl:free"
+  "nvidia/nemotron-3.5-super-vl:free",
+  "xingchen-agi/xing4.0-29b-a4b:free",
+  "dots-studio/dots-3-note-preview:free"
 ];
 
 function configuredDraftModel() {
@@ -80,6 +82,27 @@ async function openRouterRateLimitDetails(response) {
     providerName: String(metadata.provider_name || ""),
     providerCode: String(metadata.provider_code || "")
   };
+}
+
+async function openRouterFailureDetails(response) {
+  let payload = {};
+  try {
+    payload = await response.clone().json();
+  } catch {}
+  const error = payload?.error || {};
+  const metadata = error.metadata || {};
+  return {
+    message: cleanText(error.message, 220).replace(/\s+/g, " "),
+    providerName: cleanText(metadata.provider_name, 100),
+    providerCode: cleanText(metadata.provider_code, 40)
+  };
+}
+
+function openRouterFailureMessage(status, model, details) {
+  const provider = details.providerName ? ` from ${details.providerName}` : "";
+  const code = details.providerCode ? ` (provider code ${details.providerCode})` : "";
+  const reason = details.message ? `: ${details.message}` : "";
+  return `AI draft generation failed with OpenRouter status ${status} for ${model}${provider}${code}${reason}.`;
 }
 
 function rateLimitMessage(details) {
@@ -291,8 +314,9 @@ export async function generateEditorialDraft(candidate, {
             : "OpenRouter/provider rate limit or quota reached for the configured models (HTTP 429). Wait for the provider limit to reset or configure another model.");
         }
         if (response.status === 404 || response.status === 400 || response.status >= 500) {
-          lastFormatError = new Error(`AI draft generation failed with OpenRouter status ${response.status} for ${requestedModel}.`);
-          if (response.status >= 500 && attempt === 0) {
+          const details = await openRouterFailureDetails(response);
+          lastFormatError = new Error(openRouterFailureMessage(response.status, requestedModel, details));
+          if (response.status === 500 && attempt === 0) {
             await waitBeforeRetry();
             continue;
           }
@@ -417,7 +441,9 @@ export async function selectAndGenerateEditorialDraft(candidates, {
     }
     if (!response.ok) {
       if ([404, 400].includes(response.status) || response.status >= 500) {
-        lastError = new Error(`AI story selection failed with OpenRouter status ${response.status} for ${requestedModel}.`);
+        const details = await openRouterFailureDetails(response);
+        lastError = new Error(openRouterFailureMessage(response.status, requestedModel, details)
+          .replace("AI draft generation", "AI story selection"));
         if (requestedModel !== models.at(-1)) continue;
       }
       throw lastError || new Error(`AI story selection failed with OpenRouter status ${response.status}.`);

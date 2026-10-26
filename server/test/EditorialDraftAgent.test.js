@@ -231,6 +231,48 @@ test("AI draft generation tries a fallback for an upstream provider rate limit",
   assert.equal(result.model, "google/gemma-4-26b-a4b-it:free");
 });
 
+test("AI draft generation moves to the next model after an OpenRouter 502", async () => {
+  const requests = [];
+  const result = await generateEditorialDraft(candidate, {
+    apiKey: "test-secret",
+    model: "openrouter/free",
+    fallbackModels: ["google/gemma-4-26b-a4b-it:free"],
+    fetchImpl: async (_url, options) => {
+      const requestedModel = JSON.parse(options.body).model;
+      requests.push(requestedModel);
+      if (requests.length === 1) return new Response(JSON.stringify({
+        error: {
+          code: 502,
+          message: "Upstream provider is temporarily unavailable",
+          metadata: { provider_name: "Example Provider", provider_code: "502" }
+        }
+      }), { status: 502, headers: { "Content-Type": "application/json" } });
+      return successfulResponse(draft);
+    }
+  });
+
+  assert.deepEqual(requests, ["openrouter/free", "google/gemma-4-26b-a4b-it:free"]);
+  assert.equal(result.model, "google/gemma-4-26b-a4b-it:free");
+});
+
+test("AI draft generation includes a safe provider reason when every model returns 502", async () => {
+  await assert.rejects(
+    () => generateEditorialDraft(candidate, {
+      apiKey: "test-secret",
+      model: "nvidia/nemotron-3.5-super-vl:free",
+      fallbackModels: [],
+      fetchImpl: async () => new Response(JSON.stringify({
+        error: {
+          code: 502,
+          message: "The upstream inference service is temporarily unavailable",
+          metadata: { provider_name: "Example Provider", provider_code: "502" }
+        }
+      }), { status: 502, headers: { "Content-Type": "application/json" } })
+    }),
+    /status 502 for nvidia\/nemotron-3\.5-super-vl:free from Example Provider \(provider code 502\): The upstream inference service is temporarily unavailable/
+  );
+});
+
 test("AI story selection tries configured fallbacks after a rate limit", async () => {
   const requests = [];
   const selection = {
