@@ -1,16 +1,14 @@
 import { categories } from "../constants/categories.js";
 import { countWords, MINIMUM_ARTICLE_WORDS } from "../utils/wordCount.js";
 
-const DEFAULT_DRAFT_MODEL = "google/gemma-4-31b-it:free";
+const DEFAULT_DRAFT_MODEL = "openrouter/free";
 const DEFAULT_FALLBACK_MODELS = ["google/gemma-4-26b-a4b-it:free"];
 
 function configuredDraftModel() {
   const configuredModel = process.env.OPENROUTER_MODEL?.trim();
-  // openrouter/free can choose a model that does not return JSON even when
-  // response_format is requested. Keep old Render env settings compatible.
-  return !configuredModel || configuredModel === "openrouter/free"
-    ? DEFAULT_DRAFT_MODEL
-    : configuredModel;
+  // Honor OpenRouter's free router when configured. If its selected model
+  // cannot return a valid JSON draft, the configured model fallbacks handle it.
+  return configuredModel || DEFAULT_DRAFT_MODEL;
 }
 
 function configuredFallbackModels() {
@@ -222,7 +220,7 @@ export async function generateEditorialDraft(candidate, {
             : "OpenRouter/provider rate limit or quota reached (HTTP 429).");
           if (requestedModel !== models.at(-1)) break;
           throw new Error(isFreeModel
-            ? "OpenRouter rate limit or quota reached for the configured free models (HTTP 429). The free tier has a daily request limit. Wait for it to reset or configure a paid model with available credits."
+            ? "OpenRouter returned HTTP 429 for all configured free models. The free-tier daily quota may be exhausted, or providers may be temporarily rate-limiting requests. Check OpenRouter usage and retry when capacity is available."
             : "OpenRouter/provider rate limit or quota reached for the configured models (HTTP 429). Wait for the provider limit to reset or configure another model.");
         }
         if (response.status === 404 || response.status === 400 || response.status >= 500) {
@@ -345,7 +343,7 @@ export async function selectAndGenerateEditorialDraft(candidates, {
         : "OpenRouter/provider rate limit or quota reached (HTTP 429).");
       if (requestedModel !== models.at(-1)) continue;
       throw new Error(isFreeModel
-        ? "OpenRouter rate limit or quota reached for the configured free models (HTTP 429). The free tier has a daily request limit. Wait for it to reset or configure a paid model with available credits."
+        ? "OpenRouter returned HTTP 429 for all configured free models. The free-tier daily quota may be exhausted, or providers may be temporarily rate-limiting requests. Check OpenRouter usage and retry when capacity is available."
         : "OpenRouter/provider rate limit or quota reached for the configured models (HTTP 429). Wait for the provider limit to reset or configure another model.");
     }
     if (!response.ok) {

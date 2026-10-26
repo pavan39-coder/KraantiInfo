@@ -58,6 +58,28 @@ test("AI draft generation sends only source metadata and validates the generated
   assert.deepEqual(result, { ...draft, model: "test-model" });
 });
 
+test("AI draft generation honors the configured OpenRouter free-model router", async () => {
+  const previousModel = process.env.OPENROUTER_MODEL;
+  process.env.OPENROUTER_MODEL = "openrouter/free";
+  const requests = [];
+  try {
+    const result = await generateEditorialDraft(candidate, {
+      apiKey: "test-secret",
+      fallbackModels: [],
+      fetchImpl: async (_url, options) => {
+        requests.push(JSON.parse(options.body).model);
+        return successfulResponse(draft);
+      }
+    });
+
+    assert.deepEqual(requests, ["openrouter/free"]);
+    assert.equal(result.model, "openrouter/free");
+  } finally {
+    if (previousModel === undefined) delete process.env.OPENROUTER_MODEL;
+    else process.env.OPENROUTER_MODEL = previousModel;
+  }
+});
+
 test("AI draft generation retries malformed router output with a configured fallback model", async () => {
   const requests = [];
   const result = await generateEditorialDraft(candidate, {
@@ -119,7 +141,7 @@ test("AI provider authentication and quota errors are surfaced without exposing 
       apiKey: "test-secret",
       fetchImpl: async () => new Response("", { status: 429 })
     }),
-    /OpenRouter rate limit or quota/
+    /OpenRouter .*HTTP 429/
   );
 });
 
@@ -151,7 +173,7 @@ test("AI draft generation explains when all configured free models are rate limi
         return new Response("", { status: 429 });
       }
     }),
-    /configured free models.*daily request limit/i,
+    /all configured free models.*daily quota may be exhausted/i,
   );
   assert.deepEqual(requests, ["google/gemma-4-31b-it:free", "google/gemma-4-26b-a4b-it:free"]);
 });
