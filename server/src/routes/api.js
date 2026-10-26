@@ -5,78 +5,9 @@ import { demoArticles } from "../data/demoArticles.js";
 import { getDatabaseStatus } from "../config/database.js";
 import adminRoutes from "./admin.js";
 import { categories } from "../constants/categories.js";
-import { canonicalSiteOrigin, createSitemapXml, renderArticleSeoPage } from "../services/SeoRenderer.js";
 
 const router = Router();
 const databaseReady = () => mongoose.connection.readyState === 1;
-const publicSiteOrigin = () => canonicalSiteOrigin(process.env.SEO_PUBLIC_SITE_URL || "https://www.kraantiinfo.in");
-
-router.get("/sitemap.xml", async (_req, res, next) => {
-  try {
-    const articles = databaseReady()
-      ? await Article.find({ status: "published" })
-        .select("_id category publishedAt updatedAt status")
-        .sort({ publishedAt: -1 })
-        .limit(49980)
-        .lean()
-      : [];
-    res.set({
-      "Content-Type": "application/xml; charset=utf-8",
-      "Cache-Control": "public, max-age=0, must-revalidate",
-      "CDN-Cache-Control": "public, s-maxage=1800, stale-while-revalidate=3600",
-      "Vercel-CDN-Cache-Control": "public, s-maxage=1800, stale-while-revalidate=3600"
-    });
-    res.send(createSitemapXml({ articles, categories, siteOrigin: publicSiteOrigin() }));
-  } catch (error) {
-    next(error);
-  }
-});
-
-router.get("/seo/articles/:id", async (req, res, next) => {
-  try {
-    if (!mongoose.isValidObjectId(req.params.id)) return res.status(404).type("text").send("Article not found.");
-    if (!databaseReady()) return res.status(503).type("text").send("Article service is temporarily unavailable.");
-    const article = await Article.findOne({ _id: req.params.id, status: "published" }).lean();
-    if (!article) return res.status(404).type("text").send("Article not found.");
-
-    const siteOrigin = publicSiteOrigin();
-    const shellResponse = await fetch(`${siteOrigin}/`, {
-      headers: { Accept: "text/html" },
-      signal: AbortSignal.timeout(8000)
-    });
-    if (!shellResponse.ok) throw new Error(`Could not load the public site shell (${shellResponse.status}).`);
-    const shell = await shellResponse.text();
-    const publicArticle = {
-      _id: article._id,
-      title: article.title,
-      summary: article.summary,
-      body: article.body,
-      category: article.category,
-      author: article.author,
-      aiAssisted: article.aiAssisted,
-      autoPublished: article.autoPublished,
-      image: article.image,
-      imageAlt: article.imageAlt,
-      videoUrl: article.videoUrl,
-      language: article.language,
-      sourceName: article.sourceName,
-      sourceUrl: article.sourceUrl,
-      tags: article.tags,
-      publishedAt: article.publishedAt,
-      updatedAt: article.updatedAt
-    };
-    const html = renderArticleSeoPage({ shell, article: publicArticle, siteOrigin });
-    res.set({
-      "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "public, max-age=0, must-revalidate",
-      "CDN-Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600",
-      "Vercel-CDN-Cache-Control": "public, s-maxage=300, stale-while-revalidate=3600"
-    });
-    res.send(html);
-  } catch (error) {
-    next(error);
-  }
-});
 
 router.get("/health", (_req, res) => {
   res.json({
