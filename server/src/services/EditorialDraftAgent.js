@@ -2,7 +2,10 @@ import { categories } from "../constants/categories.js";
 import { countWords, MINIMUM_ARTICLE_WORDS } from "../utils/wordCount.js";
 
 const DEFAULT_DRAFT_MODEL = "openrouter/free";
-const DEFAULT_FALLBACK_MODELS = ["google/gemma-4-26b-a4b-it:free"];
+const DEFAULT_FALLBACK_MODELS = [
+  "google/gemma-4-26b-a4b-it:free",
+  "nvidia/nemotron-3.5-super-vl:free"
+];
 
 function configuredDraftModel() {
   const configuredModel = process.env.OPENROUTER_MODEL?.trim();
@@ -38,6 +41,68 @@ function cleanText(value, maxLength) {
 function isTransientNetworkError(error) {
   return /timeout|fetch failed|network|econnreset|econnrefused|und_err_connect_timeout|eai_again|socket/i
     .test(`${error?.name || ""} ${error?.message || ""} ${error?.cause?.code || ""}`);
+}
+
+function resetTimeUtc(value) {
+  if (value == null || value === "") return "";
+  const numericValue = Number(value);
+  const date = Number.isFinite(numericValue)
+    ? new Date(numericValue > 1e12 ? numericValue : numericValue * 1000)
+    : new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : date.toISOString();
+}
+
+async function openRouterRateLimitDetails(response) {
+  let payload = {};
+  try {
+    payload = await response.clone().json();
+  } catch {}
+  const metadata = payload?.error?.metadata || {};
+  const metadataHeaders = metadata.headers || {};
+  const header = name => response.headers?.get(name) ||
+    Object.entries(metadataHeaders).find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1] || "";
+  const message = String(payload?.error?.message || "");
+  const limitSource = String(metadata.limit_source || "");
+  const limit = String(header("x-ratelimit-limit"));
+  const remaining = String(header("x-ratelimit-remaining"));
+  const resetAt = resetTimeUtc(header("x-ratelimit-reset"));
+  const retryAfter = String(header("retry-after"));
+  const dailyFreeQuota = /free-models-per-day/i.test(message) || limitSource === "openrouter_free_tier_daily";
+  const platformLimit = dailyFreeQuota || Boolean(limit && remaining === "0");
+
+  return {
+    dailyFreeQuota,
+    platformLimit,
+    limit,
+    remaining,
+    resetAt,
+    retryAfter,
+    providerName: String(metadata.provider_name || ""),
+    providerCode: String(metadata.provider_code || "")
+  };
+}
+
+function rateLimitMessage(details) {
+  if (details.dailyFreeQuota) {
+    const count = details.limit ? ` The free-model limit is ${details.limit} requests per day.` : "";
+    const reset = details.resetAt ? ` It resets at ${details.resetAt} UTC.` : "";
+    return `OpenRouter's daily free-model quota is exhausted.${count}${reset} Router and fallback free models share this account quota.`;
+  }
+  if (details.platformLimit) {
+    const reset = details.resetAt ? ` The limit resets at ${details.resetAt} UTC.` : "";
+    return `OpenRouter's platform rate limit is exhausted (${details.remaining}/${details.limit} requests remaining).${reset} Retry after the reset.`;
+  }
+  if (details.providerName || details.providerCode || details.retryAfter) {
+    const provider = details.providerName ? ` Provider: ${details.providerName}.` : "";
+    const retryDate = new Date(details.retryAfter);
+    const retry = details.retryAfter
+      ? Number.isFinite(Number(details.retryAfter))
+        ? ` Retry after ${details.retryAfter} seconds.`
+        : Number.isNaN(retryDate.getTime()) ? "" : ` Retry after ${retryDate.toISOString()}.`
+      : "";
+    return `Free-model providers are temporarily rate-limiting or unavailable.${provider}${retry} OpenRouter and configured fallbacks could not complete the request.`;
+  }
+  return "OpenRouter returned HTTP 429 for the free router and configured fallbacks. Check the free-model quota in OpenRouter usage; if requests remain, wait for provider capacity and retry.";
 }
 
 function waitBeforeRetry() {
@@ -215,12 +280,14 @@ export async function generateEditorialDraft(candidate, {
         }
         if (response.status === 429) {
           const isFreeModel = requestedModel === "openrouter/free" || requestedModel.endsWith(":free");
+          const rateLimit = await openRouterRateLimitDetails(response);
+          if (rateLimit.platformLimit) throw new Error(rateLimitMessage(rateLimit));
           lastFormatError = new Error(isFreeModel
             ? "OpenRouter rate limit or quota reached for a free model (HTTP 429)."
             : "OpenRouter/provider rate limit or quota reached (HTTP 429).");
           if (requestedModel !== models.at(-1)) break;
           throw new Error(isFreeModel
-            ? "OpenRouter returned HTTP 429 for all configured free models. The free-tier daily quota may be exhausted, or providers may be temporarily rate-limiting requests. Check OpenRouter usage and retry when capacity is available."
+            ? rateLimitMessage(rateLimit)
             : "OpenRouter/provider rate limit or quota reached for the configured models (HTTP 429). Wait for the provider limit to reset or configure another model.");
         }
         if (response.status === 404 || response.status === 400 || response.status >= 500) {
@@ -338,12 +405,14 @@ export async function selectAndGenerateEditorialDraft(candidates, {
     if (response.status === 401 || response.status === 403) throw new Error("OpenRouter rejected the server API key. Check OPENROUTER_API_KEY in server/.env.");
     if (response.status === 429) {
       const isFreeModel = requestedModel === "openrouter/free" || requestedModel.endsWith(":free");
+      const rateLimit = await openRouterRateLimitDetails(response);
+      if (rateLimit.platformLimit) throw new Error(rateLimitMessage(rateLimit));
       lastError = new Error(isFreeModel
         ? "OpenRouter rate limit or quota reached for a free model (HTTP 429)."
         : "OpenRouter/provider rate limit or quota reached (HTTP 429).");
       if (requestedModel !== models.at(-1)) continue;
       throw new Error(isFreeModel
-        ? "OpenRouter returned HTTP 429 for all configured free models. The free-tier daily quota may be exhausted, or providers may be temporarily rate-limiting requests. Check OpenRouter usage and retry when capacity is available."
+        ? rateLimitMessage(rateLimit)
         : "OpenRouter/provider rate limit or quota reached for the configured models (HTTP 429). Wait for the provider limit to reset or configure another model.");
     }
     if (!response.ok) {

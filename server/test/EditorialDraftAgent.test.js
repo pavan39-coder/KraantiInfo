@@ -173,9 +173,62 @@ test("AI draft generation explains when all configured free models are rate limi
         return new Response("", { status: 429 });
       }
     }),
-    /all configured free models.*daily quota may be exhausted/i,
+    /OpenRouter returned HTTP 429.*configured fallbacks/i,
   );
   assert.deepEqual(requests, ["google/gemma-4-31b-it:free", "google/gemma-4-26b-a4b-it:free"]);
+});
+
+test("AI draft generation stops immediately when OpenRouter's shared free daily quota is exhausted", async () => {
+  const requests = [];
+  await assert.rejects(
+    () => generateEditorialDraft(candidate, {
+      apiKey: "test-secret",
+      model: "openrouter/free",
+      fallbackModels: ["google/gemma-4-26b-a4b-it:free"],
+      fetchImpl: async (_url, options) => {
+        requests.push(JSON.parse(options.body).model);
+        return new Response(JSON.stringify({
+          error: {
+            code: 429,
+            message: "Rate limit exceeded: free-models-per-day",
+            metadata: {
+              limit_source: "openrouter_free_tier_daily",
+              headers: {
+                "X-RateLimit-Limit": "50",
+                "X-RateLimit-Remaining": "0",
+                "X-RateLimit-Reset": "1792800000000"
+              }
+            }
+          }
+        }), { status: 429, headers: { "Content-Type": "application/json" } });
+      }
+    }),
+    /daily free-model quota is exhausted.*50 requests per day.*resets at .*UTC.*share this account quota/i
+  );
+  assert.deepEqual(requests, ["openrouter/free"]);
+});
+
+test("AI draft generation tries a fallback for an upstream provider rate limit", async () => {
+  const requests = [];
+  const result = await generateEditorialDraft(candidate, {
+    apiKey: "test-secret",
+    model: "openrouter/free",
+    fallbackModels: ["google/gemma-4-26b-a4b-it:free"],
+    fetchImpl: async (_url, options) => {
+      requests.push(JSON.parse(options.body).model);
+      if (requests.length === 1) return new Response(JSON.stringify({
+        error: {
+          code: 429,
+          message: "Provider returned error",
+          metadata: { provider_name: "Example Provider", provider_code: "429" }
+        }
+      }), { status: 429, headers: { "Content-Type": "application/json" } });
+      return successfulResponse(draft);
+    }
+  });
+
+  assert.deepEqual(requests, ["openrouter/free", "google/gemma-4-26b-a4b-it:free"]);
+  assert.equal(result.model, "google/gemma-4-26b-a4b-it:free");
 });
 
 test("AI story selection tries configured fallbacks after a rate limit", async () => {

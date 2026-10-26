@@ -68,7 +68,7 @@ For each source, the newsroom has separate permissions for storing full text and
 
 ## AI editorial drafts
 
-Set `OPENROUTER_API_KEY` in `server/.env`; never add provider credentials to client/Vite environment variables. Draft generation defaults to OpenRouter's `openrouter/free` router, then uses configured free-model fallbacks such as `google/gemma-4-31b-it:free` and `google/gemma-4-26b-a4b-it:free` when needed. Configure `OPENROUTER_MODEL` and `OPENROUTER_FALLBACK_MODELS` to use other OpenRouter models. Scheduled AI processing runs at most once every 12 hours by default (`AI_AUTO_PROCESSING_COOLDOWN_HOURS`); editors can still generate drafts manually between scheduled runs. The router can route around an unavailable model/provider, but the account-wide free request quota still applies. AI generation is not fact-checking.
+Set `OPENROUTER_API_KEY` in `server/.env`; never add provider credentials to client/Vite environment variables. Draft generation defaults to OpenRouter's `openrouter/free` router, then uses configured free-model fallbacks such as `google/gemma-4-26b-a4b-it:free` and `nvidia/nemotron-3.5-super-vl:free` when needed. Configure `OPENROUTER_MODEL` and `OPENROUTER_FALLBACK_MODELS` to use other OpenRouter models. Scheduled AI processing runs at most once every 12 hours by default (`AI_AUTO_PROCESSING_COOLDOWN_HOURS`); editors can still generate drafts manually between scheduled runs. The router can route around an unavailable model/provider, but the account-wide free request quota still applies. AI generation is not fact-checking.
 
 ### Automatic AI selection and drafting
 
