@@ -72,6 +72,8 @@ test("AI draft generation falls back to Gemini when OpenRouter's shared free quo
   ]);
   assert.equal(geminiRequest.headers["x-goog-api-key"], "gemini-test-secret");
   assert.equal(geminiRequest.body.generationConfig.responseMimeType, "application/json");
+  assert.equal(geminiRequest.body.generationConfig.thinkingConfig.thinkingLevel, "low");
+  assert.equal(geminiRequest.body.generationConfig.temperature, 1);
   assert.match(geminiRequest.body.contents[0].parts[0].text, /A short source summary/);
   assert.deepEqual(result, { ...draft, model: "gemini-3.8-flash" });
 });

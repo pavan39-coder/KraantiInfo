@@ -3,7 +3,8 @@ import { countWords, MINIMUM_ARTICLE_WORDS } from "../utils/wordCount.js";
 
 const DEFAULT_DRAFT_MODEL = "openrouter/free";
 const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
-const PROVIDER_REQUEST_TIMEOUT_MS = 25000;
+const OPENROUTER_REQUEST_TIMEOUT_MS = 25000;
+const GEMINI_REQUEST_TIMEOUT_MS = 60000;
 const MAX_OPENROUTER_DRAFT_REQUESTS = 3;
 const MAX_OPENROUTER_MODELS_PER_DRAFT = 2;
 const DEFAULT_FALLBACK_MODELS = [
@@ -186,7 +187,7 @@ async function generateGeminiDraft({ apiKey, model, systemPrompt, userPrompt, fe
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   const response = await fetchImpl(endpoint, {
     method: "POST",
-    signal: AbortSignal.timeout(PROVIDER_REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(GEMINI_REQUEST_TIMEOUT_MS),
     headers: {
       "x-goog-api-key": apiKey,
       "Content-Type": "application/json"
@@ -195,9 +196,12 @@ async function generateGeminiDraft({ apiKey, model, systemPrompt, userPrompt, fe
       systemInstruction: { parts: [{ text: systemPrompt }] },
       contents: [{ role: "user", parts: [{ text: userPrompt }] }],
       generationConfig: {
-        temperature: 0.2,
+        temperature: 1,
         maxOutputTokens: 5000,
         responseMimeType: "application/json",
+        ...(model.startsWith("gemini-3.") || model.startsWith("gemini-4-")
+          ? { thinkingConfig: { thinkingLevel: "low" } }
+          : {}),
         responseSchema: {
           type: "object",
           properties: {
@@ -336,7 +340,7 @@ export async function generateEditorialDraft(candidate, {
           try {
             response = await fetchImpl("https://openrouter.ai/api/v1/chat/completions", {
               method: "POST",
-              signal: AbortSignal.timeout(PROVIDER_REQUEST_TIMEOUT_MS),
+              signal: AbortSignal.timeout(OPENROUTER_REQUEST_TIMEOUT_MS),
               headers: {
                 Authorization: `Bearer ${apiKey}`,
                 "Content-Type": "application/json",
