@@ -302,7 +302,7 @@ router.post("/collected-articles/:id/generate-draft", async (req, res, next) => 
       imageAlt: candidate.title,
       videoUrl: candidate.videoUrl,
       language,
-      tags: [generated.category],
+      tags: [...new Set([generated.category, ...generated.seoKeywords])],
       status: "draft"
     });
     candidate.status = "draft";
@@ -341,13 +341,14 @@ router.patch("/editorial/articles/:id", async (req, res, next) => {
     if (bodyWordCount < MINIMUM_ARTICLE_WORDS) {
       return res.status(400).json({ error: `Article body has ${bodyWordCount} words. Write at least ${MINIMUM_ARTICLE_WORDS} words before saving.` });
     }
+    const previousCategory = article.category;
     article.title = title.trim();
     article.summary = summary.trim();
     article.body = body.trim();
     article.category = cleanCategory;
     article.author = typeof author === "string" && author.trim() ? author.trim().slice(0, 100) : article.author;
     if (typeof verificationNotes === "string") article.verificationNotes = verificationNotes.slice(0, 3000);
-    article.tags = [cleanCategory];
+    article.tags = [...new Set([cleanCategory, ...(article.tags || []).filter(tag => tag !== previousCategory && tag !== cleanCategory)])];
     await article.save();
     res.json({ data: article });
   } catch (error) {

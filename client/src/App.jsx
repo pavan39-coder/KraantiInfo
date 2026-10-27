@@ -216,6 +216,7 @@ function App() {
         "@type": "NewsArticle",
         headline: selected.title,
         description: selected.summary,
+        keywords: selected.tags?.join(", ") || undefined,
         image: selected.image ? [selected.image] : undefined,
         articleSection: selected.category,
         datePublished: selected.publishedAt,
@@ -338,7 +339,14 @@ function App() {
               <div className="article-body">
                 {apiStatus === "demo" && <div className="demo-note"><ShieldCheck size={17} /><span><strong>Demo story.</strong> This sample content is illustrative, not breaking or independently verified news.</span></div>}
                 <p className="article-lead">{selected.summary}</p>
-                {selected.body ? selected.body.split(/\n{2,}/).filter(Boolean).map((paragraph, index) => index === 1 ? <div key={index}><h2>मुख्य बातें</h2><p>{paragraph}</p></div> : <p key={index}>{paragraph}</p>) : apiStatus === "demo" ? <>
+                {selected.body ? selected.body.split(/\n{2,}/).filter(Boolean).map((paragraph, index) => {
+                  const heading = paragraph.match(/^(#{1,3})\s+(.+)$/);
+                  if (heading) {
+                    const Heading = heading[1].length === 3 ? "h3" : "h2";
+                    return <Heading key={index}>{heading[2]}</Heading>;
+                  }
+                  return <p key={index}>{paragraph}</p>;
+                }) : apiStatus === "demo" ? <>
                   <p>There is growing attention on this story and what it could mean for people, institutions and the wider community. The details will continue to develop as more verified information becomes available.</p>
                   <h2>What to know</h2>
                   <p>This KraantiInfo demo article illustrates the publication format. In production, an editor would review source material, verify important claims and add clear attribution before publication. This text is not a report of verified current events.</p>

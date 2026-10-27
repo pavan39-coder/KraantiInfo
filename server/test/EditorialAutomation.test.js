@@ -21,6 +21,7 @@ function generatedDraft(overrides = {}) {
     body: longArticleBody,
     category: "India",
     verificationNotes: "Check the linked source.",
+    seoKeywords: ["public transport service", "new bus service", "city bus routes"],
     ...overrides
   };
 }

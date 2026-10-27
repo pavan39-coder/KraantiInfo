@@ -34,7 +34,14 @@ export function buildBloggerContent(article, articleUrl = "") {
     .split(/\n\s*\n/)
     .map(paragraph => paragraph.trim())
     .filter(Boolean)
-    .map(paragraph => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
+    .map(paragraph => {
+      const heading = paragraph.match(/^(#{1,3})\s+(.+)$/);
+      if (heading) {
+        const level = heading[1].length === 3 ? "h3" : "h2";
+        return `<${level}>${escapeHtml(heading[2])}</${level}>`;
+      }
+      return `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`;
+    })
     .join("\n");
   const imageUrl = /^https:\/\//i.test(article.image || "") ? article.image : "";
   const image = imageUrl
@@ -120,6 +127,12 @@ export async function publishArticleToBlogger(article, { force = false } = {}) {
   }
 
   const label = article.bloggerSync?.label || getSyncLabel(article._id);
+  const labels = [...new Set([
+    "KraantiInfo",
+    article.category,
+    ...(Array.isArray(article.tags) ? article.tags : []),
+    label
+  ].map(value => String(value || "").trim()).filter(Boolean))];
   article.bloggerSync = {
     status: "pending",
     postId: article.bloggerSync?.postId || "",
@@ -145,7 +158,7 @@ export async function publishArticleToBlogger(article, { force = false } = {}) {
           blog: { id: blogId },
           title: article.title,
           content: buildBloggerContent(article, articleUrl(article)),
-          labels: ["KraantiInfo", article.category, label],
+          labels,
           isDraft: false
         })
       });

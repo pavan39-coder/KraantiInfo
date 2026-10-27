@@ -152,7 +152,7 @@ function draftRetryInstruction(error) {
   if (/^The AI draft contains/.test(error?.message || "")) {
     return `Your previous response was below the ${MINIMUM_ARTICLE_WORDS}-word minimum. Rewrite it with at least ${MINIMUM_ARTICLE_WORDS} body words, useful labeled background, and no invented current facts. Return the complete JSON object again.`;
   }
-  return `Your previous response was empty, malformed, or incomplete. Return one complete valid JSON object with string fields title, summary, body, category, and verificationNotes. The body must contain at least ${MINIMUM_ARTICLE_WORDS} words. Keep supported facts separate from context and do not invent current facts.`;
+  return `Your previous response was empty, malformed, or incomplete. Return one complete valid JSON object with string fields title, summary, body, category, verificationNotes, and seoKeywords (an array of 3–6 strings, with the primary search phrase first). The body must contain at least ${MINIMUM_ARTICLE_WORDS} words. Keep supported facts separate from context and do not invent current facts.`;
 }
 
 function parseDraft(content) {
@@ -181,10 +181,13 @@ function parseDraft(content) {
     summary: cleanText(parsed.summary, 500),
     body: cleanText(parsed.body, 20000),
     category: cleanText(parsed.category, 40),
-    verificationNotes: cleanText(parsed.verificationNotes, 3000)
+    verificationNotes: cleanText(parsed.verificationNotes, 3000),
+    seoKeywords: Array.isArray(parsed.seoKeywords)
+      ? [...new Set(parsed.seoKeywords.map(keyword => cleanText(keyword, 60)).filter(Boolean))].slice(0, 6)
+      : []
   };
   const allowedCategories = categories;
-  if (!draft.title || !draft.summary || !draft.body || !allowedCategories.includes(draft.category) || !draft.verificationNotes) {
+  if (!draft.title || !draft.summary || !draft.body || !allowedCategories.includes(draft.category) || !draft.verificationNotes || draft.seoKeywords.length < 3) {
     throw new Error("The AI provider returned an incomplete article draft. Please retry.");
   }
   const bodyWordCount = countWords(draft.body);
@@ -220,9 +223,10 @@ async function generateGeminiDraft({ apiKey, model, systemPrompt, userPrompt, fe
             summary: { type: "string" },
             body: { type: "string" },
             category: { type: "string", enum: categories },
-            verificationNotes: { type: "string" }
+            verificationNotes: { type: "string" },
+            seoKeywords: { type: "array", items: { type: "string" } }
           },
-          required: ["title", "summary", "body", "category", "verificationNotes"]
+          required: ["title", "summary", "body", "category", "verificationNotes", "seoKeywords"]
         }
       }
     })
@@ -351,7 +355,9 @@ export async function generateEditorialDraft(candidate, {
     `When only a headline and short description are available, still write a useful 500+ word ${outputLanguage} explainer: separate confirmed source facts from clearly framed background and analysis; explain what the source does and does not establish; describe possible implications conditionally; and identify what readers should watch for next. Use general knowledge only for stable background, never invent current updates, quotes, numbers, decisions, causes, or outcomes. Avoid repetition and generic filler.`,
     "Do not imply independent verification. Make verificationNotes explicit about which statements came from the source and which contextual background an editor must check. Metadata-only drafts require human review before publication.",
     `Write an original, well-structured ${outputLanguage} report with at least ${MINIMUM_ARTICLE_WORDS} words (aim for 600–750 words). The minimum applies only to body, not title, summary, or verification notes. Use several substantial paragraphs with useful subheadings where appropriate.`,
-    "Return only a JSON object with string fields: title, summary, body, category, verificationNotes.",
+    "Search visibility: identify one primary search phrase and 2–5 closely related phrases readers may use for this exact topic. Use only phrases supported by the source topic and facts. Put the primary phrase naturally in the title, summary, opening paragraph, and one relevant subheading when it reads naturally; weave related phrases into useful headings or body text only where they help readers. Make the summary a concise, specific search-result description. Return seoKeywords as an array of 3–6 short, natural phrases, with the primary phrase first, for Blogger labels and article tags. Do not claim a phrase is viral or has high search volume without search data; do not add unrelated trends, hashtags, clickbait, or repetitive keyword lists.",
+    "Format section headings as Markdown using ## for major sections and ### for a subsection. Keep the article readable if formatting is removed.",
+    "Return only a JSON object with string fields title, summary, body, category, verificationNotes, and seoKeywords (an array of strings).",
     "verificationNotes must list key claims an editor still needs to verify against the linked original source and, when appropriate, independent sources. If facts are insufficient, state what is missing.",
     `category must be one of: ${categories.join(", ")}.`,
     "The result is an unpublished editorial draft and must never be described as verified or ready to publish."

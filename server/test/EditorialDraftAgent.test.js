@@ -17,7 +17,8 @@ const draft = {
   summary: "A concise original summary.",
   body: Array.from({ length: 520 }, (_, index) => `supported${index}`).join(" "),
   category: "India",
-  verificationNotes: "Verify the primary claim and date against the source."
+  verificationNotes: "Verify the primary claim and date against the source.",
+  seoKeywords: ["A source headline", "source headline update", "India news update"]
 };
 
 function successfulResponse(content) {

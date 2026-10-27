@@ -180,7 +180,7 @@ export async function processCollectedCandidates({
       imageAlt: candidate.title,
       videoUrl: candidate.videoUrl,
       language: outputLanguage,
-      tags: [generated.category],
+      tags: [...new Set([generated.category, ...(Array.isArray(generated.seoKeywords) ? generated.seoKeywords : [])])],
       status: shouldAutoPublish ? "published" : "review",
       publishedAt: shouldAutoPublish ? now : undefined
     });

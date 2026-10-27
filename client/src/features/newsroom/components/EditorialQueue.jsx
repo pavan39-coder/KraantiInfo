@@ -38,7 +38,14 @@ function EditorialArticleCard({ article, busy, onStatus, onSave }) {
       <h3>{article.title}</h3>
       <p className="editorial-summary">{article.summary}</p>
       {article.verificationNotes && <div className="verification-notes"><ShieldCheck size={15} /><div><strong>AI verification notes — editor must check</strong><p>{article.verificationNotes}</p></div></div>}
-      <details className="editorial-preview"><summary>Read article draft</summary><div>{article.body.split(/\n{2,}/).filter(Boolean).map((paragraph, index) => <p key={index}>{paragraph}</p>)}</div></details>
+      <details className="editorial-preview"><summary>Read article draft</summary><div>{article.body.split(/\n{2,}/).filter(Boolean).map((paragraph, index) => {
+        const heading = paragraph.match(/^(#{1,3})\s+(.+)$/);
+        if (heading) {
+          const Heading = heading[1].length === 3 ? "h3" : "h2";
+          return <Heading key={index}>{heading[2]}</Heading>;
+        }
+        return <p key={index}>{paragraph}</p>;
+      })}</div></details>
       <div className="editorial-source">Source attribution: <strong>{article.sourceName}</strong>{source?.provider && <span> · {source.provider}</span>} {article.sourceUrl && <a href={article.sourceUrl} target="_blank" rel="noreferrer">Verify original <ExternalLink size={12} /></a>}</div>
       <div className="editorial-actions">
         <button className="quiet-button edit-article-button" disabled={busy} onClick={() => { setForm({ title: article.title, summary: article.summary, body: article.body, verificationNotes: article.verificationNotes || "", category: article.category, author: brandedAuthor(article.author) }); setEditing(true); }}>Edit article</button>
