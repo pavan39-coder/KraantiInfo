@@ -31,11 +31,66 @@ test("AI draft generation fails clearly without a server-side OpenRouter API key
   await assert.rejects(
     () => generateEditorialDraft(candidate, {
       apiKey: "",
+      geminiApiKey: "",
       fetchImpl: async () => { called = true; }
     }),
-    /Configure OPENROUTER_API_KEY in server\/\.env/
+    /Configure OPENROUTER_API_KEY or GEMINI_API_KEY/
   );
   assert.equal(called, false);
+});
+
+test("AI draft generation falls back to Gemini when OpenRouter's shared free quota is exhausted", async () => {
+  const requests = [];
+  let geminiRequest;
+  const result = await generateEditorialDraft(candidate, {
+    apiKey: "openrouter-test-secret",
+    geminiApiKey: "gemini-test-secret",
+    model: "openrouter/free",
+    fallbackModels: ["google/gemma-4-26b-a4b-it:free"],
+    fetchImpl: async (url, options) => {
+      requests.push(url);
+      if (url.includes("openrouter.ai")) {
+        return new Response(JSON.stringify({
+          error: {
+            code: 429,
+            message: "Rate limit exceeded: free-models-per-day",
+            metadata: { limit_source: "openrouter_free_tier_daily" }
+          }
+        }), { status: 429, headers: { "Content-Type": "application/json" } });
+      }
+      geminiRequest = { url, ...options, body: JSON.parse(options.body) };
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: JSON.stringify(draft) }] }, finishReason: "STOP" }],
+        modelVersion: "gemini-3.8-flash"
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+  });
+
+  assert.deepEqual(requests, [
+    "https://openrouter.ai/api/v1/chat/completions",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent"
+  ]);
+  assert.equal(geminiRequest.headers["x-goog-api-key"], "gemini-test-secret");
+  assert.equal(geminiRequest.body.generationConfig.responseMimeType, "application/json");
+  assert.match(geminiRequest.body.contents[0].parts[0].text, /A short source summary/);
+  assert.deepEqual(result, { ...draft, model: "gemini-3.8-flash" });
+});
+
+test("AI draft generation works with Gemini alone", async () => {
+  let requestedUrl;
+  const result = await generateEditorialDraft(candidate, {
+    apiKey: "",
+    geminiApiKey: "gemini-test-secret",
+    fetchImpl: async url => {
+      requestedUrl = url;
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: JSON.stringify(draft) }] } }]
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+  });
+
+  assert.match(requestedUrl, /generativelanguage\.googleapis\.com/);
+  assert.deepEqual(result, { ...draft, model: "gemini-3.8-flash" });
 });
 
 test("AI draft generation sends only source metadata and validates the generated JSON", async () => {
@@ -183,6 +238,7 @@ test("AI draft generation stops immediately when OpenRouter's shared free daily 
   await assert.rejects(
     () => generateEditorialDraft(candidate, {
       apiKey: "test-secret",
+      geminiApiKey: "",
       model: "openrouter/free",
       fallbackModels: ["google/gemma-4-26b-a4b-it:free"],
       fetchImpl: async (_url, options) => {

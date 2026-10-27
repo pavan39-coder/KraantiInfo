@@ -2,6 +2,10 @@ import { categories } from "../constants/categories.js";
 import { countWords, MINIMUM_ARTICLE_WORDS } from "../utils/wordCount.js";
 
 const DEFAULT_DRAFT_MODEL = "openrouter/free";
+const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
+const PROVIDER_REQUEST_TIMEOUT_MS = 25000;
+const MAX_OPENROUTER_DRAFT_REQUESTS = 3;
+const MAX_OPENROUTER_MODELS_PER_DRAFT = 2;
 const DEFAULT_FALLBACK_MODELS = [
   "google/gemma-4-26b-a4b-it:free",
   "nvidia/nemotron-3.5-super-vl:free",
@@ -178,6 +182,57 @@ function parseDraft(content) {
   return draft;
 }
 
+async function generateGeminiDraft({ apiKey, model, systemPrompt, userPrompt, fetchImpl }) {
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  const response = await fetchImpl(endpoint, {
+    method: "POST",
+    signal: AbortSignal.timeout(PROVIDER_REQUEST_TIMEOUT_MS),
+    headers: {
+      "x-goog-api-key": apiKey,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+      generationConfig: {
+        temperature: 0.2,
+        maxOutputTokens: 5000,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "object",
+          properties: {
+            title: { type: "string" },
+            summary: { type: "string" },
+            body: { type: "string" },
+            category: { type: "string", enum: categories },
+            verificationNotes: { type: "string" }
+          },
+          required: ["title", "summary", "body", "category", "verificationNotes"]
+        }
+      }
+    })
+  });
+
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new Error(`Gemini API returned an unreadable response (HTTP ${response.status}).`);
+  }
+  if (!response.ok) {
+    const detail = cleanText(payload?.error?.message, 240).replace(/\s+/g, " ");
+    throw new Error(`Gemini API returned HTTP ${response.status}${detail ? `: ${detail}` : ` (${payload?.error?.status || "request failed"})`}.`);
+  }
+
+  const parts = payload?.candidates?.[0]?.content?.parts || [];
+  const content = parts.map(part => typeof part?.text === "string" ? part.text : "").join("").trim();
+  if (!content) {
+    const finishReason = payload?.candidates?.[0]?.finishReason;
+    throw new Error(`Gemini API returned no article draft${finishReason ? ` (finish reason: ${finishReason})` : ""}.`);
+  }
+  return { ...parseDraft(content), model: payload.modelVersion || model };
+}
+
 function parseJsonObject(content) {
   const normalizedContent = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   try {
@@ -216,12 +271,16 @@ function normalizeSource(candidate) {
 
 export async function generateEditorialDraft(candidate, {
   apiKey = process.env.OPENROUTER_API_KEY,
+  geminiApiKey = process.env.GEMINI_API_KEY,
+  geminiModel = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
   model = configuredDraftModel(),
   language = "hi",
   fallbackModels = configuredFallbackModels(),
   fetchImpl = fetch
 } = {}) {
-  if (!apiKey) throw new Error("Configure OPENROUTER_API_KEY in server/.env to generate AI editorial drafts.");
+  if (!apiKey && !geminiApiKey) {
+    throw new Error("Configure OPENROUTER_API_KEY or GEMINI_API_KEY in the server environment to generate AI editorial drafts.");
+  }
   const outputLanguage = language === "en" ? "English" : "Hindi";
   const languageStyle = language === "en" ? "clear, natural English" : "clear, natural Hindi (Devanagari)";
 
@@ -255,115 +314,143 @@ export async function generateEditorialDraft(candidate, {
       content: `You are the article's AI author. Write an original ${outputLanguage} KraantiInfo article whose body has at least ${MINIMUM_ARTICLE_WORDS} words, even if the source provides only headline/metadata. Count words separated by spaces or punctuation. Keep source-confirmed facts distinct from contextual explanation, and do not invent developing-news details.\n\n<source_material>\n${JSON.stringify(sourceMaterial)}\n</source_material>`
     }
   ];
-  const models = [...new Set([model, ...fallbackModels])];
+  const models = [...new Set([model, ...fallbackModels])].slice(0, MAX_OPENROUTER_MODELS_PER_DRAFT);
   let lastFormatError;
+  let openRouterError;
+  let openRouterRequests = 0;
 
-  for (const requestedModel of models) {
-    let retryInstruction = "";
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      const requestMessages = attempt === 0 || !retryInstruction ? messages : [
-        ...messages,
-        {
-          role: "user",
-          content: retryInstruction
-        }
-      ];
-      let response;
-      try {
-        response = await fetchImpl("https://openrouter.ai/api/v1/chat/completions", {
-          method: "POST",
-          signal: AbortSignal.timeout(45000),
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            "Content-Type": "application/json",
-            "X-Title": "KraantiInfo"
-          },
-          body: JSON.stringify({
-            model: requestedModel,
-            temperature: 0.2,
-            max_tokens: 5000,
-            response_format: { type: "json_object" },
-            ...(requestedModel.startsWith("google/gemma-4-") ? { reasoning: { enabled: false } } : {}),
-            messages: requestMessages
-          })
-        });
-      } catch (error) {
-        const reason = isTransientNetworkError(error) ? "could not be reached due to a temporary network timeout" : "could not be reached";
-        lastFormatError = new Error(`The AI provider ${reason}. Check server connectivity and retry.`);
-        if (attempt === 0 && isTransientNetworkError(error)) {
-          await waitBeforeRetry();
-          continue;
-        }
-        break;
-      }
-
-      if (!response.ok) {
-        if (response.status === 401 || response.status === 403) {
-          throw new Error("OpenRouter rejected the server API key. Check OPENROUTER_API_KEY in server/.env.");
-        }
-        if (response.status === 429) {
-          const isFreeModel = requestedModel === "openrouter/free" || requestedModel.endsWith(":free");
-          const rateLimit = await openRouterRateLimitDetails(response);
-          if (rateLimit.platformLimit) throw new Error(rateLimitMessage(rateLimit));
-          lastFormatError = new Error(isFreeModel
-            ? "OpenRouter rate limit or quota reached for a free model (HTTP 429)."
-            : "OpenRouter/provider rate limit or quota reached (HTTP 429).");
-          if (requestedModel !== models.at(-1)) break;
-          throw new Error(isFreeModel
-            ? rateLimitMessage(rateLimit)
-            : "OpenRouter/provider rate limit or quota reached for the configured models (HTTP 429). Wait for the provider limit to reset or configure another model.");
-        }
-        if (response.status === 404 || response.status === 400 || response.status >= 500) {
-          const details = await openRouterFailureDetails(response);
-          lastFormatError = new Error(openRouterFailureMessage(response.status, requestedModel, details));
-          if (response.status === 500 && attempt === 0) {
-            await waitBeforeRetry();
-            continue;
+  if (apiKey) {
+    try {
+      for (const requestedModel of models) {
+        let retryInstruction = "";
+        for (let attempt = 0; attempt < 2 && openRouterRequests < MAX_OPENROUTER_DRAFT_REQUESTS; attempt += 1) {
+          openRouterRequests += 1;
+          const requestMessages = attempt === 0 || !retryInstruction ? messages : [
+            ...messages,
+            {
+              role: "user",
+              content: retryInstruction
+            }
+          ];
+          let response;
+          try {
+            response = await fetchImpl("https://openrouter.ai/api/v1/chat/completions", {
+              method: "POST",
+              signal: AbortSignal.timeout(PROVIDER_REQUEST_TIMEOUT_MS),
+              headers: {
+                Authorization: `Bearer ${apiKey}`,
+                "Content-Type": "application/json",
+                "X-Title": "KraantiInfo"
+              },
+              body: JSON.stringify({
+                model: requestedModel,
+                temperature: 0.2,
+                max_tokens: 5000,
+                response_format: { type: "json_object" },
+                ...(requestedModel.startsWith("google/gemma-4-") ? { reasoning: { enabled: false } } : {}),
+                messages: requestMessages
+              })
+            });
+          } catch (error) {
+            const reason = isTransientNetworkError(error) ? "could not be reached due to a temporary network timeout" : "could not be reached";
+            lastFormatError = new Error(`The AI provider ${reason}. Check server connectivity and retry.`);
+            if (attempt === 0 && isTransientNetworkError(error)) {
+              await waitBeforeRetry();
+              continue;
+            }
+            break;
           }
-          break;
+
+          if (!response.ok) {
+            if (response.status === 401 || response.status === 403) {
+              throw new Error("OpenRouter rejected the server API key. Check OPENROUTER_API_KEY in server/.env.");
+            }
+            if (response.status === 429) {
+              const isFreeModel = requestedModel === "openrouter/free" || requestedModel.endsWith(":free");
+              const rateLimit = await openRouterRateLimitDetails(response);
+              if (rateLimit.platformLimit) throw new Error(rateLimitMessage(rateLimit));
+              lastFormatError = new Error(isFreeModel
+                ? "OpenRouter rate limit or quota reached for a free model (HTTP 429)."
+                : "OpenRouter/provider rate limit or quota reached (HTTP 429).");
+              if (requestedModel !== models.at(-1)) break;
+              throw new Error(isFreeModel
+                ? rateLimitMessage(rateLimit)
+                : "OpenRouter/provider rate limit or quota reached for the configured models (HTTP 429). Wait for the provider limit to reset or configure another model.");
+            }
+            if (response.status === 404 || response.status === 400 || response.status >= 500) {
+              const details = await openRouterFailureDetails(response);
+              lastFormatError = new Error(openRouterFailureMessage(response.status, requestedModel, details));
+              if (response.status === 500 && attempt === 0) {
+                await waitBeforeRetry();
+                continue;
+              }
+              break;
+            }
+            throw new Error(`AI draft generation failed with OpenRouter status ${response.status}.`);
+          }
+
+          let payload;
+          try {
+            payload = await response.json();
+          } catch {
+            lastFormatError = new Error("The AI provider returned an unreadable response. Please retry.");
+            retryInstruction = draftRetryInstruction(lastFormatError);
+            if (attempt === 0) {
+              await waitBeforeRetry();
+              continue;
+            }
+            break;
+          }
+          const content = extractMessageContent(payload);
+          if (typeof content !== "string" || !content.trim()) {
+            const finishReason = payload.choices?.[0]?.finish_reason;
+            const responseModel = payload.model || requestedModel;
+            lastFormatError = new Error(`The AI provider (${responseModel}) returned no article draft${finishReason ? `; finish reason: ${finishReason}` : ""}. Please retry.`);
+            retryInstruction = draftRetryInstruction(lastFormatError);
+            if (attempt === 0) {
+              await waitBeforeRetry();
+              continue;
+            }
+            break;
+          }
+          try {
+            return { ...parseDraft(content), model: payload.model || requestedModel };
+          } catch (error) {
+            lastFormatError = error;
+            retryInstruction = draftRetryInstruction(error);
+            if (attempt === 0) {
+              await waitBeforeRetry();
+              continue;
+            }
+            break;
+          }
         }
-        throw new Error(`AI draft generation failed with OpenRouter status ${response.status}.`);
       }
 
-      let payload;
-      try {
-        payload = await response.json();
-      } catch {
-        lastFormatError = new Error("The AI provider returned an unreadable response. Please retry.");
-        retryInstruction = draftRetryInstruction(lastFormatError);
-        if (attempt === 0) {
-          await waitBeforeRetry();
-          continue;
-        }
-        break;
-      }
-      const content = extractMessageContent(payload);
-      if (typeof content !== "string" || !content.trim()) {
-        const finishReason = payload.choices?.[0]?.finish_reason;
-        const responseModel = payload.model || requestedModel;
-        lastFormatError = new Error(`The AI provider (${responseModel}) returned no article draft${finishReason ? `; finish reason: ${finishReason}` : ""}. Please retry.`);
-        retryInstruction = draftRetryInstruction(lastFormatError);
-        if (attempt === 0) {
-          await waitBeforeRetry();
-          continue;
-        }
-        break;
-      }
-      try {
-        return { ...parseDraft(content), model: payload.model || requestedModel };
-      } catch (error) {
-        lastFormatError = error;
-        retryInstruction = draftRetryInstruction(error);
-        if (attempt === 0) {
-          await waitBeforeRetry();
-          continue;
-        }
-        break;
-      }
+      throw lastFormatError || new Error("No configured OpenRouter model returned a valid article draft.");
+    } catch (error) {
+      openRouterError = error;
     }
   }
 
-  throw lastFormatError || new Error("No configured OpenRouter model returned a valid article draft.");
+  if (geminiApiKey) {
+    try {
+      return await generateGeminiDraft({
+        apiKey: geminiApiKey,
+        model: geminiModel,
+        systemPrompt,
+        userPrompt: messages[1].content,
+        fetchImpl
+      });
+    } catch (geminiError) {
+      if (openRouterError) {
+        throw new Error(`OpenRouter draft generation failed: ${openRouterError.message} Gemini fallback failed: ${geminiError.message}`);
+      }
+      throw geminiError;
+    }
+  }
+
+  throw openRouterError || lastFormatError || new Error("No configured AI provider returned a valid article draft.");
 }
 
 export async function selectAndGenerateEditorialDraft(candidates, {

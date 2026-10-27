@@ -21,6 +21,10 @@ services:
         sync: false
       - key: OPENROUTER_API_KEY
         sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.8-flash
       - key: OPENROUTER_MODEL
         value: openrouter/free
       - key: OPENROUTER_FALLBACK_MODELS
