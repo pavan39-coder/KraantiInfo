@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mapWithConcurrency, normalizeRecord, normalizedUrl, safeExternalUrl } from "../src/services/NewsCollector.js";
+import { gdeltRateLimitCooldownMs, mapWithConcurrency, normalizeRecord, normalizedUrl, safeExternalUrl } from "../src/services/NewsCollector.js";
 
 const source = {
   _id: "source-id",
@@ -90,4 +90,16 @@ test("source fetch concurrency is bounded and results stay in source order", asy
 
   assert.equal(peak, 3);
   assert.deepEqual(results, [0, 2, 4, 6, 8]);
+});
+
+test("GDELT rate-limit errors skip repeat requests for one minute", () => {
+  const source = {
+    type: "GDELT",
+    lastFetchedAt: new Date(100_000),
+    lastFetchError: "Provider returned HTTP 429. Please limit requests to one every 5 seconds."
+  };
+
+  assert.equal(gdeltRateLimitCooldownMs(source, 110_000), 50_000);
+  assert.equal(gdeltRateLimitCooldownMs(source, 160_000), 0);
+  assert.equal(gdeltRateLimitCooldownMs({ ...source, type: "RSS" }, 110_000), 0);
 });

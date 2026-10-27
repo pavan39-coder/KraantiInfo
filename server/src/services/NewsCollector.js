@@ -18,9 +18,13 @@ const parser = new Parser({
 });
 const REQUEST_TIMEOUT_MS = 15000;
 const SOURCE_FETCH_CONCURRENCY = 3;
+const GDELT_REQUEST_INTERVAL_MS = 5000;
+const GDELT_RATE_LIMIT_COOLDOWN_MS = 60_000;
 const TRACKING_PARAMS = /^(utm_.+|fbclid|gclid|mc_cid|mc_eid|ref_src)$/i;
 let collectionInProgress = false;
 let lastCollection = null;
+let gdeltRequestQueue = Promise.resolve();
+let gdeltNextRequestAt = 0;
 
 function hash(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -267,11 +271,12 @@ export function normalizeRecord(record, source) {
   };
 }
 
-async function fetchJson(url) {
+async function fetchJson(url, { includeErrorBody = false } = {}) {
   const response = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS), headers: { Accept: "application/json" } });
   if (!response.ok) {
     const retryAfter = response.headers.get("retry-after");
-    throw new Error(`Provider returned HTTP ${response.status}${retryAfter ? `; retry after ${retryAfter}` : ""}.`);
+    const responseBody = includeErrorBody ? (await response.text()).replace(/\s+/g, " ").trim().slice(0, 300) : "";
+    throw new Error(`Provider returned HTTP ${response.status}${retryAfter ? `; retry after ${retryAfter}` : ""}.${responseBody ? ` ${responseBody}` : ""}`);
   }
   return response.json();
 }
@@ -307,6 +312,18 @@ async function collectNewsData(source) {
 }
 
 async function collectGdelt(source) {
+  let releaseRequestSlot;
+  const previousRequest = gdeltRequestQueue;
+  gdeltRequestQueue = new Promise(resolve => { releaseRequestSlot = resolve; });
+  await previousRequest;
+  try {
+    const waitMs = gdeltNextRequestAt - Date.now();
+    if (waitMs > 0) await new Promise(resolve => setTimeout(resolve, waitMs));
+    gdeltNextRequestAt = Date.now() + GDELT_REQUEST_INTERVAL_MS;
+  } finally {
+    releaseRequestSlot();
+  }
+
   const url = new URL("https://api.gdeltproject.org/api/v2/doc/doc");
   url.searchParams.set("query", source.endpoint?.trim() || "India");
   url.searchParams.set("mode", "ArtList");
@@ -318,7 +335,7 @@ async function collectGdelt(source) {
     const preferredLanguage = source.language.split(",")[0].trim().toLowerCase();
     url.searchParams.set("sourcelang", gdeltLanguages[preferredLanguage] || preferredLanguage);
   }
-  const payload = await fetchJson(url);
+  const payload = await fetchJson(url, { includeErrorBody: true });
   if (payload.status === "error") throw new Error(payload.message || "GDELT returned an error.");
   if (!Array.isArray(payload.articles)) throw new Error("GDELT returned an unexpected response.");
   return payload.articles.map(item => ({
@@ -332,6 +349,15 @@ async function collectGdelt(source) {
     category: source.category,
     publishedAt: item.seendate
   }));
+}
+
+export function gdeltRateLimitCooldownMs(source, now = Date.now()) {
+  if (source.type !== "GDELT" || !source.lastFetchedAt ||
+      !/(?:HTTP\s+429|limit requests to one every 5 seconds|rate.?limit)/i.test(source.lastFetchError || "")) return 0;
+  const elapsed = now - new Date(source.lastFetchedAt).getTime();
+  return elapsed >= 0 && elapsed < GDELT_RATE_LIMIT_COOLDOWN_MS
+    ? GDELT_RATE_LIMIT_COOLDOWN_MS - elapsed
+    : 0;
 }
 
 async function collectFeed(source) {
@@ -407,6 +433,15 @@ export async function mapWithConcurrency(items, concurrency, mapper) {
 }
 
 async function fetchOneSource(source) {
+  const cooldownMs = gdeltRateLimitCooldownMs(source);
+  if (cooldownMs > 0) {
+    return {
+      source,
+      records: [],
+      error: null,
+      skippedReason: `GDELT rate-limit cooldown active; retry in ${Math.ceil(cooldownMs / 1000)} seconds.`
+    };
+  }
   try {
     return { source, records: await fetchSource(source), error: null };
   } catch (error) {
@@ -414,7 +449,14 @@ async function fetchOneSource(source) {
   }
 }
 
-async function collectOneSource(source, records, fetchError) {
+async function collectOneSource(source, records, fetchError, skippedReason) {
+  if (skippedReason) {
+    await NewsSource.updateOne(
+      { _id: source._id },
+      { $set: { lastFetchStatus: `Skipped · ${skippedReason}` } }
+    );
+    return { sourceId: String(source._id), sourceName: source.name, cooldownSkipped: true, message: skippedReason, fetched: 0, inserted: 0, duplicates: 0, skipped: 0 };
+  }
   try {
     if (fetchError) throw fetchError;
     const articles = [];
@@ -467,8 +509,8 @@ export async function collectEnabledSources() {
     if (!sources.length) throw new Error("No news sources are enabled. Add and enable an approved source first.");
     const fetchedSources = await mapWithConcurrency(sources, SOURCE_FETCH_CONCURRENCY, fetchOneSource);
     const results = [];
-    for (const { source, records, error } of fetchedSources) {
-      results.push(await collectOneSource(source, records, error));
+    for (const { source, records, error, skippedReason } of fetchedSources) {
+      results.push(await collectOneSource(source, records, error, skippedReason));
     }
     lastCollection = {
       completedAt: new Date().toISOString(),
