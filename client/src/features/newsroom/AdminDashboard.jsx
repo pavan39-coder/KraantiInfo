@@ -122,9 +122,7 @@ function AdminDashboard({ onExit, token, onLogin, requireAuth }) {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "News collection failed.");
-      const editorial = result.editorial || {};
-      const automationError = editorial.failures?.[0]?.error;
-      setRunStatus(`Collection finished · ${result.fetched} fetched · ${result.inserted} new candidates saved · ${result.duplicates} duplicates skipped · ${result.errors} source errors.${editorial.enabled ? ` AI published ${editorial.published || 0} · sent ${editorial.review || 0} to review.${automationError ? ` AI note: ${automationError}` : ""}` : ""}`);
+      setRunStatus(`Collection finished · ${result.fetched} fetched · ${result.inserted} new candidates saved · ${result.duplicates} duplicates skipped · ${result.errors} source errors. Use “Process AI candidates now” to create a draft separately.`);
       await loadCollectorSources();
       await refreshEditorial();
     } catch (err) {

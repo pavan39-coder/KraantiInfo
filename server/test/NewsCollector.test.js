@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeRecord, normalizedUrl, safeExternalUrl } from "../src/services/NewsCollector.js";
+import { mapWithConcurrency, normalizeRecord, normalizedUrl, safeExternalUrl } from "../src/services/NewsCollector.js";
 
 const source = {
   _id: "source-id",
@@ -75,4 +75,19 @@ test("feed URLs must use HTTPS and cannot target local addresses", async () => {
   await assert.rejects(() => safeExternalUrl("http://news.example/feed.xml"), /HTTPS/);
   await assert.rejects(() => safeExternalUrl("https://127.0.0.1/feed.xml"), /private network/);
   await assert.rejects(() => safeExternalUrl("https://localhost/feed.xml"), /private network/);
+});
+
+test("source fetch concurrency is bounded and results stay in source order", async () => {
+  let active = 0;
+  let peak = 0;
+  const results = await mapWithConcurrency([0, 1, 2, 3, 4], 3, async value => {
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    active -= 1;
+    return value * 2;
+  });
+
+  assert.equal(peak, 3);
+  assert.deepEqual(results, [0, 2, 4, 6, 8]);
 });

@@ -184,8 +184,7 @@ router.post("/engine/collect", async (req, res, next) => {
   }
   try {
     const collection = await collectEnabledSources();
-    const editorial = await processCollectedCandidates({ draftLanguage: requestedLanguage });
-    res.json({ ...collection, editorial });
+    res.json(collection);
   } catch (error) {
     if (/already in progress|disabled|No news sources are enabled/.test(error.message)) return res.status(409).json({ error: error.message });
     next(error);

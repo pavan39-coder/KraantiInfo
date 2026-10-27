@@ -17,6 +17,7 @@ const parser = new Parser({
   }
 });
 const REQUEST_TIMEOUT_MS = 15000;
+const SOURCE_FETCH_CONCURRENCY = 3;
 const TRACKING_PARAMS = /^(utm_.+|fbclid|gclid|mc_cid|mc_eid|ref_src)$/i;
 let collectionInProgress = false;
 let lastCollection = null;
@@ -391,11 +392,32 @@ async function fetchSource(source) {
   }
 }
 
-async function collectOneSource(source) {
+export async function mapWithConcurrency(items, concurrency, mapper) {
+  const results = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(items.length, Math.max(1, Math.floor(concurrency) || 1));
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  }));
+  return results;
+}
+
+async function fetchOneSource(source) {
   try {
-    const records = await fetchSource(source);
-    let inserted = 0;
-    let duplicates = 0;
+    return { source, records: await fetchSource(source), error: null };
+  } catch (error) {
+    return { source, records: [], error };
+  }
+}
+
+async function collectOneSource(source, records, fetchError) {
+  try {
+    if (fetchError) throw fetchError;
+    const articles = [];
     let skipped = 0;
     for (const record of records) {
       const article = normalizeRecord(record, source);
@@ -403,24 +425,20 @@ async function collectOneSource(source) {
         skipped += 1;
         continue;
       }
-      const existing = await SourceArticle.exists({
-        $or: [
-          { dedupeKey: article.dedupeKey },
-          { titleFingerprint: article.titleFingerprint }
-        ]
-      });
-      if (existing) {
-        duplicates += 1;
-        continue;
-      }
-      try {
-        await SourceArticle.create(article);
-        inserted += 1;
-      } catch (error) {
-        if (error.code !== 11000) throw error;
-        duplicates += 1;
-      }
+      articles.push(article);
     }
+    const operations = articles.map(article => ({
+      updateOne: {
+        filter: { $or: [{ dedupeKey: article.dedupeKey }, { titleFingerprint: article.titleFingerprint }] },
+        update: { $setOnInsert: { ...article, status: "collected", collectedAt: new Date() } },
+        upsert: true
+      }
+    }));
+    const writeResult = operations.length
+      ? await SourceArticle.bulkWrite(operations, { ordered: true })
+      : { upsertedCount: 0 };
+    const inserted = writeResult.upsertedCount ?? writeResult.nUpserted ?? 0;
+    const duplicates = articles.length - inserted;
     await NewsSource.updateOne(
       { _id: source._id },
       { $set: { lastFetchedAt: new Date(), lastFetchStatus: `OK · ${inserted} new, ${duplicates} duplicates`, lastFetchError: "" } }
@@ -447,8 +465,11 @@ export async function collectEnabledSources() {
   try {
     const sources = await NewsSource.find({ enabled: true }).lean();
     if (!sources.length) throw new Error("No news sources are enabled. Add and enable an approved source first.");
+    const fetchedSources = await mapWithConcurrency(sources, SOURCE_FETCH_CONCURRENCY, fetchOneSource);
     const results = [];
-    for (const source of sources) results.push(await collectOneSource(source));
+    for (const { source, records, error } of fetchedSources) {
+      results.push(await collectOneSource(source, records, error));
+    }
     lastCollection = {
       completedAt: new Date().toISOString(),
       sources: results.length,
