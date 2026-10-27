@@ -95,6 +95,32 @@ test("AI draft generation works with Gemini alone", async () => {
   assert.deepEqual(result, { ...draft, model: "gemini-3.8-flash" });
 });
 
+test("AI draft generation switches Gemini models after a temporary 503", async () => {
+  const requestedModels = [];
+  const result = await generateEditorialDraft(candidate, {
+    apiKey: "",
+    geminiApiKey: "gemini-test-secret",
+    geminiModel: "gemini-3.8-flash",
+    geminiFallbackModels: ["gemini-3.6-flash", "gemini-3.5-flash-lite"],
+    fetchImpl: async url => {
+      const requestedModel = decodeURIComponent(url.match(/models\/([^:]+)/)[1]);
+      requestedModels.push(requestedModel);
+      if (requestedModel === "gemini-3.8-flash") {
+        return new Response(JSON.stringify({
+          error: { message: "This model is currently experiencing high demand.", status: "UNAVAILABLE" }
+        }), { status: 503, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({
+        candidates: [{ content: { parts: [{ text: JSON.stringify(draft) }] } }],
+        modelVersion: requestedModel
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+  });
+
+  assert.deepEqual(requestedModels, ["gemini-3.8-flash", "gemini-3.6-flash"]);
+  assert.deepEqual(result, { ...draft, model: "gemini-3.6-flash" });
+});
+
 test("AI draft generation sends only source metadata and validates the generated JSON", async () => {
   let request;
   const result = await generateEditorialDraft(candidate, {

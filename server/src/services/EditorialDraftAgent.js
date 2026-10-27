@@ -3,8 +3,11 @@ import { countWords, MINIMUM_ARTICLE_WORDS } from "../utils/wordCount.js";
 
 const DEFAULT_DRAFT_MODEL = "openrouter/free";
 const DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
+const DEFAULT_GEMINI_FALLBACK_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash-lite"];
 const OPENROUTER_REQUEST_TIMEOUT_MS = 25000;
 const GEMINI_REQUEST_TIMEOUT_MS = 60000;
+const GEMINI_FALLBACK_REQUEST_TIMEOUT_MS = 25000;
+const MAX_GEMINI_MODELS_PER_DRAFT = 3;
 const MAX_OPENROUTER_DRAFT_REQUESTS = 3;
 const MAX_OPENROUTER_MODELS_PER_DRAFT = 2;
 const DEFAULT_FALLBACK_MODELS = [
@@ -27,6 +30,14 @@ function configuredFallbackModels() {
     .map(value => value.trim())
     .filter(Boolean);
   return configuredModels.length ? configuredModels : DEFAULT_FALLBACK_MODELS;
+}
+
+function configuredGeminiFallbackModels() {
+  const configuredModels = (process.env.GEMINI_FALLBACK_MODELS || "")
+    .split(",")
+    .map(value => value.trim())
+    .filter(Boolean);
+  return configuredModels.length ? configuredModels : DEFAULT_GEMINI_FALLBACK_MODELS;
 }
 
 function extractMessageContent(payload) {
@@ -133,8 +144,8 @@ function rateLimitMessage(details) {
   return "OpenRouter returned HTTP 429 for the free router and configured fallbacks. Check the free-model quota in OpenRouter usage; if requests remain, wait for provider capacity and retry.";
 }
 
-function waitBeforeRetry() {
-  return new Promise(resolve => setTimeout(resolve, 750));
+function waitBeforeRetry(delayMs = 750) {
+  return new Promise(resolve => setTimeout(resolve, delayMs + Math.random() * 250));
 }
 
 function draftRetryInstruction(error) {
@@ -183,11 +194,11 @@ function parseDraft(content) {
   return draft;
 }
 
-async function generateGeminiDraft({ apiKey, model, systemPrompt, userPrompt, fetchImpl }) {
+async function generateGeminiDraft({ apiKey, model, systemPrompt, userPrompt, fetchImpl, timeoutMs }) {
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   const response = await fetchImpl(endpoint, {
     method: "POST",
-    signal: AbortSignal.timeout(GEMINI_REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
     headers: {
       "x-goog-api-key": apiKey,
       "Content-Type": "application/json"
@@ -225,7 +236,9 @@ async function generateGeminiDraft({ apiKey, model, systemPrompt, userPrompt, fe
   }
   if (!response.ok) {
     const detail = cleanText(payload?.error?.message, 240).replace(/\s+/g, " ");
-    throw new Error(`Gemini API returned HTTP ${response.status}${detail ? `: ${detail}` : ` (${payload?.error?.status || "request failed"})`}.`);
+    const error = new Error(`Gemini API returned HTTP ${response.status}${detail ? `: ${detail}` : ` (${payload?.error?.status || "request failed"})`}.`);
+    error.status = response.status;
+    throw error;
   }
 
   const parts = payload?.candidates?.[0]?.content?.parts || [];
@@ -235,6 +248,37 @@ async function generateGeminiDraft({ apiKey, model, systemPrompt, userPrompt, fe
     throw new Error(`Gemini API returned no article draft${finishReason ? ` (finish reason: ${finishReason})` : ""}.`);
   }
   return { ...parseDraft(content), model: payload.modelVersion || model };
+}
+
+function shouldTryGeminiFallback(error) {
+  if (error?.status == null) return true;
+  return [404, 408, 429, 500, 502, 503, 504].includes(error.status);
+}
+
+async function generateWithGeminiFallback({ apiKey, model, fallbackModels, systemPrompt, userPrompt, fetchImpl }) {
+  const models = [...new Set([model, ...fallbackModels].map(value => value.trim()).filter(Boolean))]
+    .slice(0, MAX_GEMINI_MODELS_PER_DRAFT);
+  const failures = [];
+
+  for (let index = 0; index < models.length; index += 1) {
+    const requestedModel = models[index];
+    try {
+      return await generateGeminiDraft({
+        apiKey,
+        model: requestedModel,
+        systemPrompt,
+        userPrompt,
+        fetchImpl,
+        timeoutMs: index === 0 ? GEMINI_REQUEST_TIMEOUT_MS : GEMINI_FALLBACK_REQUEST_TIMEOUT_MS
+      });
+    } catch (error) {
+      failures.push(`${requestedModel}: ${error.message}`);
+      if (!shouldTryGeminiFallback(error) || index === models.length - 1) break;
+      if ([408, 429, 500, 502, 503, 504].includes(error.status)) await waitBeforeRetry();
+    }
+  }
+
+  throw new Error(`All configured Gemini models failed (${failures.join(" | ")}).`);
 }
 
 function parseJsonObject(content) {
@@ -277,6 +321,7 @@ export async function generateEditorialDraft(candidate, {
   apiKey = process.env.OPENROUTER_API_KEY,
   geminiApiKey = process.env.GEMINI_API_KEY,
   geminiModel = process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL,
+  geminiFallbackModels = configuredGeminiFallbackModels(),
   model = configuredDraftModel(),
   language = "hi",
   fallbackModels = configuredFallbackModels(),
@@ -439,9 +484,10 @@ export async function generateEditorialDraft(candidate, {
 
   if (geminiApiKey) {
     try {
-      return await generateGeminiDraft({
+      return await generateWithGeminiFallback({
         apiKey: geminiApiKey,
         model: geminiModel,
+        fallbackModels: geminiFallbackModels,
         systemPrompt,
         userPrompt: messages[1].content,
         fetchImpl

@@ -25,6 +25,8 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-3.8-flash
+      - key: GEMINI_FALLBACK_MODELS
+        value: gemini-3.6-flash,gemini-3.5-flash-lite
       - key: OPENROUTER_MODEL
         value: openrouter/free
       - key: OPENROUTER_FALLBACK_MODELS
