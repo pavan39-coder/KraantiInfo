@@ -21,7 +21,7 @@ function EditorialArticleCard({ article, busy, onStatus, onSave }) {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ title: article.title, summary: article.summary, body: article.body, category: article.category, author: brandedAuthor(article.author) });
   const source = article.sourceArticle;
-  const categoryIsSensitive = /politic|election|crime|health|business|finance|death|market|stock|bank|assault|arrest|murder|injur|fatal|disease|drug|court/i.test(`${article.category} ${source?.title || ""} ${source?.description || ""} ${source?.category || ""}`);
+  const categoryIsSensitive = article.requiresSensitiveReview === true || /politic|election|crime|health|business|finance|death|market|stock|bank|assault|arrest|murder|injur|fatal|disease|drug|court/i.test(`${article.category} ${source?.title || ""} ${source?.description || ""} ${source?.category || ""}`);
   const canPublish = article.status === "review" && factCheckConfirmed && attributionConfirmed && (!categoryIsSensitive || sensitiveReviewConfirmed);
 
   return (

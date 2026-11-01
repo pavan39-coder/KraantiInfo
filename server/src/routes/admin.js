@@ -253,7 +253,10 @@ router.get("/editorial/articles", async (req, res, next) => {
       .limit(100)
       .populate("sourceArticle", "title description category sourceName url provider")
       .lean();
-    res.json({ data });
+    res.json({ data: data.map(article => ({
+      ...article,
+      requiresSensitiveReview: sensitiveCategories.test(`${article.category || ""} ${article.sourceArticle?.title || ""} ${article.sourceArticle?.description || ""} ${article.sourceArticle?.category || ""}`)
+    })) });
   } catch (error) {
     next(error);
   }

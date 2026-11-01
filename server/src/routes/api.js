@@ -9,6 +9,7 @@ import { isAutomaticPublishingEnabled } from "../utils/automaticPublishing.js";
 
 const router = Router();
 const databaseReady = () => mongoose.connection.readyState === 1;
+const escapeRegex = value => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 router.get("/health", (_req, res) => {
   res.json({
@@ -37,7 +38,21 @@ router.get("/articles", async (req, res, next) => {
 
     const query = { status: "published" };
     if (category && category !== "All") query.category = new RegExp(`^${String(category).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i");
-    if (search) query.$text = { $search: String(search) };
+    if (typeof search === "string" && search.trim()) {
+      // Avoid requiring a manually-created MongoDB text index in production.
+      // Match every query word across the fields readers actually see.
+      const terms = search.trim().slice(0, 120).split(/\s+/).filter(Boolean).slice(0, 8);
+      query.$and = terms.map(term => {
+        const value = new RegExp(escapeRegex(term), "i");
+        return { $or: [
+          { title: value },
+          { summary: value },
+          { body: value },
+          { category: value },
+          { tags: value }
+        ] };
+      });
+    }
     const data = await Article.find(query).sort({ publishedAt: -1 }).limit(Math.min(Number(limit) || 20, 100)).lean();
     res.json({ data, demo: false });
   } catch (error) {
