@@ -250,7 +250,7 @@ router.get("/editorial/articles", async (req, res, next) => {
     const data = await Article.find(query)
       .sort({ updatedAt: -1 })
       .limit(100)
-      .populate("sourceArticle", "title sourceName url provider")
+      .populate("sourceArticle", "title description category sourceName url provider")
       .lean();
     res.json({ data });
   } catch (error) {
