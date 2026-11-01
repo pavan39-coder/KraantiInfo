@@ -171,8 +171,10 @@ test("all automatically generated stories remain in editorial review, including 
 test("automatic publishing accepts reliability 75 only when the other recent, detailed, low-risk gates pass", async () => {
   const previousProcessing = process.env.AI_AUTO_PROCESSING_ENABLED;
   const previousPublishing = process.env.AI_AUTO_PUBLISH_ENABLED;
+  const previousNoReviewOptIn = process.env.AI_AUTO_PUBLISH_WITHOUT_HUMAN_REVIEW;
   process.env.AI_AUTO_PROCESSING_ENABLED = "true";
   process.env.AI_AUTO_PUBLISH_ENABLED = "true";
+  process.env.AI_AUTO_PUBLISH_WITHOUT_HUMAN_REVIEW = "true";
   const publishable = {
     ...candidate,
     description: "A detailed report explains a new public technology service announced today, how residents can access it, the locations where it is available, and the schedule for its rollout across the city. The service is intended to improve access to local information and public facilities.",
@@ -214,6 +216,8 @@ test("automatic publishing accepts reliability 75 only when the other recent, de
     else process.env.AI_AUTO_PROCESSING_ENABLED = previousProcessing;
     if (previousPublishing === undefined) delete process.env.AI_AUTO_PUBLISH_ENABLED;
     else process.env.AI_AUTO_PUBLISH_ENABLED = previousPublishing;
+    if (previousNoReviewOptIn === undefined) delete process.env.AI_AUTO_PUBLISH_WITHOUT_HUMAN_REVIEW;
+    else process.env.AI_AUTO_PUBLISH_WITHOUT_HUMAN_REVIEW = previousNoReviewOptIn;
   }
 });
 

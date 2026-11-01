@@ -14,6 +14,7 @@ import { getDatabaseStatus } from "../config/database.js";
 import { categories } from "../constants/categories.js";
 import { countWords, MINIMUM_ARTICLE_WORDS } from "../utils/wordCount.js";
 import { isBloggerConfigured, isBloggerPublishingEnabled, publishArticleToBlogger, retryFailedBloggerArticles } from "../services/BloggerPublisher.js";
+import { isAutomaticPublishingEnabled } from "../utils/automaticPublishing.js";
 
 const router = Router();
 const sensitiveCategories = /politic|election|crime|health|business|finance|death|market|stock|bank|assault|arrest|murder|injur|fatal|disease|drug|court/i;
@@ -86,7 +87,7 @@ router.get("/overview", async (_req, res, next) => {
       engine: { enabled: process.env.NEWS_ENGINE_ENABLED === "true", lastRun: latestRun },
       automation: {
         enabled: process.env.AI_AUTO_PROCESSING_ENABLED === "true",
-        autoPublishEnabled: process.env.AI_AUTO_PUBLISH_ENABLED === "true",
+        autoPublishEnabled: isAutomaticPublishingEnabled(),
         maxPerRun: 1
       },
       blogger: { enabled: isBloggerPublishingEnabled(), configured: isBloggerConfigured() }

@@ -43,6 +43,8 @@ services:
         value: hi
       - key: AI_AUTO_PUBLISH_ENABLED
         value: "true"
+      - key: AI_AUTO_PUBLISH_WITHOUT_HUMAN_REVIEW
+        value: "false"
       - key: NEWSDATA_API_KEY
         sync: false
       - key: BLOGGER_BLOG_ID

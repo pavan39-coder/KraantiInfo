@@ -4,6 +4,7 @@ import SourceArticle from "../models/SourceArticle.js";
 import { generateEditorialDraft } from "./EditorialDraftAgent.js";
 import { publishArticleToBlogger } from "./BloggerPublisher.js";
 import { countWords, MINIMUM_ARTICLE_WORDS } from "../utils/wordCount.js";
+import { isAutomaticPublishingEnabled } from "../utils/automaticPublishing.js";
 
 const MIN_SOURCE_RELIABILITY = 75;
 const MAX_SOURCE_AGE_MS = 24 * 60 * 60 * 1000;
@@ -39,7 +40,7 @@ export function assessAutoDraftCandidate(candidate, now = new Date()) {
 }
 
 export function assessAutoPublishCandidate(candidate, draft, now = new Date()) {
-  if (process.env.AI_AUTO_PUBLISH_ENABLED !== "true") return "Automatic publishing is disabled.";
+  if (!isAutomaticPublishingEnabled()) return "Automatic publishing is disabled until the explicit no-human-review opt-in is enabled.";
   const draftEligibilityIssue = assessAutoDraftCandidate(candidate, now);
   if (draftEligibilityIssue) return draftEligibilityIssue;
   if ((candidate.source?.reliabilityScore || 0) < AUTO_PUBLISH_MIN_RELIABILITY) return "Source reliability is below the automatic publishing threshold.";

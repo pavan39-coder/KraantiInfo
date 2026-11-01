@@ -5,6 +5,7 @@ import { demoArticles } from "../data/demoArticles.js";
 import { getDatabaseStatus } from "../config/database.js";
 import adminRoutes from "./admin.js";
 import { categories } from "../constants/categories.js";
+import { isAutomaticPublishingEnabled } from "../utils/automaticPublishing.js";
 
 const router = Router();
 const databaseReady = () => mongoose.connection.readyState === 1;
@@ -15,7 +16,7 @@ router.get("/health", (_req, res) => {
     database: getDatabaseStatus(),
     engineEnabled: process.env.NEWS_ENGINE_ENABLED === "true",
     aiAutoProcessingEnabled: process.env.AI_AUTO_PROCESSING_ENABLED === "true",
-    aiAutoPublishEnabled: process.env.AI_AUTO_PUBLISH_ENABLED === "true",
+    aiAutoPublishEnabled: isAutomaticPublishingEnabled(),
     collectionIntervalMinutes: Math.min(Math.max(Number(process.env.NEWS_COLLECTION_INTERVAL_MINUTES) || 30, 5), 1440)
   });
 });
