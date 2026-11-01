@@ -25,6 +25,34 @@ function escapeHtml(value = "") {
   })[character]);
 }
 
+function renderArticleVideo(value = "", title = "Article video") {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    return "";
+  }
+  if (url.protocol !== "https:") return "";
+
+  const host = url.hostname.toLowerCase();
+  let embedUrl = "";
+  if (["youtu.be", "www.youtube.com", "youtube.com", "m.youtube.com", "youtube-nocookie.com", "www.youtube-nocookie.com"].includes(host)) {
+    const parts = url.pathname.split("/").filter(Boolean);
+    const videoId = host === "youtu.be"
+      ? parts[0]
+      : url.searchParams.get("v") || (/(?:embed|shorts|live)\//.test(url.pathname) ? parts.at(-1) : "");
+    if (/^[a-zA-Z0-9_-]{6,20}$/.test(videoId || "")) {
+      embedUrl = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}`;
+    }
+  } else if (["vimeo.com", "www.vimeo.com", "player.vimeo.com"].includes(host)) {
+    const videoId = url.pathname.split("/").filter(Boolean).find(part => /^\d{6,12}$/.test(part));
+    if (videoId) embedUrl = `https://player.vimeo.com/video/${encodeURIComponent(videoId)}`;
+  }
+
+  if (!embedUrl) return `<p><a href="${escapeHtml(url.href)}" rel="nofollow noopener noreferrer">Watch the original video</a></p>`;
+  return `<figure class="article-video"><iframe src="${escapeHtml(embedUrl)}" title="${escapeHtml(title)}" width="560" height="315" loading="lazy" style="width:100%;max-width:560px;aspect-ratio:16/9" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></figure>`;
+}
+
 function getSyncLabel(articleId) {
   return `kraantiinfo-article-${String(articleId).replace(/[^a-zA-Z0-9_-]/g, "")}`;
 }
@@ -45,8 +73,9 @@ export function buildBloggerContent(article, articleUrl = "") {
     .join("\n");
   const imageUrl = /^https:\/\//i.test(article.image || "") ? article.image : "";
   const image = imageUrl
-    ? `<figure><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(article.imageAlt || article.title)}" /></figure>`
+    ? `<figure><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(article.imageAlt || article.title)}" loading="lazy" decoding="async" style="max-width:100%;height:auto" /></figure>`
     : "";
+  const video = renderArticleVideo(article.videoUrl, article.title || "Article video");
   const sourceUrl = /^https:\/\//i.test(article.sourceUrl || "") ? article.sourceUrl : "";
   const source = sourceUrl
     ? `<p><strong>Source:</strong> <a href="${escapeHtml(sourceUrl)}" rel="nofollow noopener">${escapeHtml(article.sourceName || "Original source")}</a></p>`
@@ -58,7 +87,7 @@ export function buildBloggerContent(article, articleUrl = "") {
     ? "<p><small>This AI-assisted report was automatically published from attributed source material and has not been independently verified.</small></p>"
     : "";
   return [
-    `<p><em>${escapeHtml(article.summary || "")}</em></p>`, image, paragraphs,
+    `<p><em>${escapeHtml(article.summary || "")}</em></p>`, image, paragraphs, video,
     source, disclosure, KraantiInfo
   ].filter(Boolean).join("\n");
 }
