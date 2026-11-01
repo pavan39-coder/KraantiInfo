@@ -151,15 +151,14 @@ export async function publishArticleToBlogger(article, { force = false } = {}) {
       ? await bloggerRequest(`/blogs/${encodeURIComponent(blogId)}/posts/${encodeURIComponent(article.bloggerSync.postId)}?fetchBody=false`)
       : await findExistingPost(blogId, label);
     if (!post) {
-      post = await bloggerRequest(`/blogs/${encodeURIComponent(blogId)}/posts`, {
+      post = await bloggerRequest(`/blogs/${encodeURIComponent(blogId)}/posts?isDraft=false`, {
         method: "POST",
         body: JSON.stringify({
           kind: "blogger#post",
           blog: { id: blogId },
           title: article.title,
           content: buildBloggerContent(article, articleUrl(article)),
-          labels,
-          isDraft: false
+          labels
         })
       });
     }
