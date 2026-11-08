@@ -156,10 +156,11 @@ export async function publishArticleToBlogger(article, { force = false } = {}) {
   }
 
   const label = article.bloggerSync?.label || getSyncLabel(article._id);
+  // Keep Blogger labels to the stable identifiers that the API accepts reliably.
+  // Imported SEO tags can make posts.insert fail with Google's generic INVALID_ARGUMENT.
   const labels = [...new Set([
     "KraantiInfo",
     article.category,
-    ...(Array.isArray(article.tags) ? article.tags : []),
     label
   ].map(value => String(value || "").trim()).filter(Boolean))];
   article.bloggerSync = {
